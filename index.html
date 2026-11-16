@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Jettism · carreras de jets en el navegador</title>
+<meta name="description" content="Carreras de jets con piruetas en mundos de arte surrealista, para jugar en el navegador.">
+<meta name="theme-color" content="#1a1640">
+<link rel="canonical" href="https://11diegonavarro-code.github.io/jettism/">
+<meta property="og:title" content="Jettism · carreras de jets en el navegador">
+<meta property="og:description" content="Carreras de jets con piruetas en mundos de arte surrealista, para jugar en el navegador.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://11diegonavarro-code.github.io/jettism/">
+<meta property="og:image" content="https://11diegonavarro-code.github.io/jettism/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="es_ES">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9C%88%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --panel: #1a1640ee; --line: #ffffff22; --text: #fff8ee; --muted: #d8cdea; --gold: #ffcf6b; --cyan: #3ee8ff; --rose: #ff6f91; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2a1d4a; color: var(--text); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; }
+  canvas { display: block; }
+  [hidden] { display: none !important; }
+  button { font: inherit; cursor: pointer; border: 2px solid var(--line); background: #ffffff16; color: var(--text); border-radius: 14px; padding: 10px 16px; font-weight: 800; transition: transform .08s, background .15s; }
+  button:hover { background: #ffffff28; }
+  button:active { transform: scale(.96); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
+  button.primary { background: linear-gradient(135deg, #ff6f91, #ffb347); border-color: transparent; color: #1a1030; box-shadow: 0 4px 0 #a8435e; }
+  button.big { width: 100%; padding: 14px; font-size: 19px; }
+  button.link { background: none; border: none; color: var(--muted); text-decoration: underline; padding: 6px; font-weight: 600; }
+  input, select { font: inherit; color: var(--text); background: #00000055; border: 2px solid var(--line); border-radius: 10px; padding: 7px 10px; }
+  select option { background: #1a1640; }
+  input[type=range] { padding: 0; accent-color: var(--rose); }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--rose); }
+  label { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 10px 0; color: var(--muted); font-weight: 600; }
+  label > input:not([type=checkbox]), label > select { flex: 1; max-width: 220px; }
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center end; padding: 16px max(16px, 6vw) 16px 16px; z-index: 10; }
+  .overlay.centered { place-items: center; padding: 16px; background: #0b081d88; }
+  .panel { width: min(440px, 100%); max-height: 100%; overflow: auto; background: var(--panel); border: 2px solid var(--line); border-radius: 22px; padding: 22px 24px; box-shadow: 0 20px 60px #0009; backdrop-filter: blur(6px); }
+  h1 { margin: 0 0 4px; font-size: 54px; font-weight: 900; text-align: center; letter-spacing: 4px; line-height: 1; background: linear-gradient(100deg, var(--gold), var(--rose) 60%, #b884ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { text-align: center; color: var(--muted); margin: 0 0 16px; font-weight: 600; }
+  h2 { margin: 0 0 12px; text-align: center; }
+  h3 { margin: 14px 0 6px; font-size: 14px; color: var(--gold); letter-spacing: 1px; text-transform: uppercase; }
+  .row { display: flex; gap: 10px; margin: 12px 0; }
+  .row > button { flex: 1; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; line-height: 1.45; }
+  .records { text-align: center; color: var(--gold); font-weight: 700; font-size: 14px; min-height: 1.2em; }
+  .help { font-size: 13.5px; color: var(--muted); line-height: 1.75; }
+  .help b { color: var(--text); }
+  kbd { background: #ffffff1a; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; color: var(--text); font-family: inherit; }
+  table.combos { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.combos td { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  table.combos td:last-child { color: var(--cyan); font-weight: 700; text-align: right; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 800; background: radial-gradient(ellipse at 30% 70%, #ff9a6a, #6b3a8a 55%, #1a1640); z-index: 30; }
+  .sh { text-shadow: 0 2px 0 #0009, 0 0 14px #0007; }
+
+  /* Marcador */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-weight: 900; }
+  #tl { position: absolute; top: 14px; left: 18px; }
+  #lap { font-size: 15px; letter-spacing: 2px; color: var(--gold); }
+  #time { font-size: 34px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  #lapTime, #best { font-size: 14px; font-variant-numeric: tabular-nums; opacity: .9; font-weight: 700; }
+  #tr { position: absolute; top: 14px; right: 18px; text-align: right; }
+  #tr small { font-size: 13px; letter-spacing: 2px; color: var(--gold); display: block; }
+  #style { font-size: 30px; font-variant-numeric: tabular-nums; }
+  #chain { font-size: 22px; color: var(--cyan); min-height: 1.1em; }
+  #chainTrack { width: 120px; height: 5px; background: #ffffff22; border-radius: 3px; margin-left: auto; overflow: hidden; }
+  #chainBar { height: 100%; width: 0; background: var(--cyan); }
+  #bottom { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); text-align: center; width: min(420px, 80vw); }
+  #speedRow { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+  #speed { font-size: 46px; font-variant-numeric: tabular-nums; line-height: 1; }
+  #speedRow small { font-size: 15px; opacity: .85; }
+  #alt { font-size: 13px; opacity: .8; margin-left: 10px; font-weight: 700; }
+  #turbo { height: 14px; border-radius: 8px; background: #00000066; border: 2px solid #ffffff44; overflow: hidden; margin-top: 6px; }
+  #turboFill { height: 100%; width: 0; background: linear-gradient(90deg, #ff8a2a, #ffcf6b); transition: width .1s linear; }
+  #turbo.on #turboFill { background: linear-gradient(90deg, #3ee8ff, #ffffff); box-shadow: 0 0 14px var(--cyan); }
+  #turbo.full { border-color: var(--gold); box-shadow: 0 0 12px #ffcf6b88; }
+  #turboLbl { font-size: 11px; letter-spacing: 3px; color: var(--gold); margin-top: 3px; }
+  #center { position: absolute; inset: 0; display: grid; place-items: center; font-size: 90px; text-align: center; white-space: pre-line; line-height: 1.05; }
+  #center.small { font-size: 40px; }
+  #feed { position: absolute; left: 50%; top: 26%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .fd { font-size: 26px; animation: fd 1.7s ease-out forwards; white-space: nowrap; text-shadow: 0 2px 0 #0009, 0 0 12px #000a; }
+  .fd.trick { color: var(--gold); }
+  .fd.manual { color: #ffe39a; }
+  .fd.near { color: var(--cyan); font-size: 20px; }
+  .fd.bad { color: #ff8a8a; font-size: 20px; }
+  .fd.info { color: #fff; font-size: 20px; }
+  @keyframes fd { 0% { opacity: 0; transform: translateY(10px) scale(.9); } 12% { opacity: 1; transform: translateY(0) scale(1.06); } 22% { transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px); } }
+  #section { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); font-size: 22px; letter-spacing: 3px; color: var(--gold); opacity: 0; text-transform: uppercase; }
+  #section.on { animation: sec 2.6s ease-out; }
+  @keyframes sec { 0% { opacity: 0; } 15%, 70% { opacity: 1; } 100% { opacity: 0; } }
+  #marker, #edgeArrow, #reticle, #noseMark { position: absolute; left: 0; top: 0; will-change: transform; }
+  #marker > div:first-child { width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 3px solid var(--cyan); transform: rotate(45deg); box-shadow: 0 0 10px var(--cyan); }
+  #markerDist { position: absolute; top: 14px; left: 0; transform: translateX(-50%); font-size: 13px; color: var(--cyan); white-space: nowrap; }
+  #edgeArrow { width: 0; height: 0; margin: -14px 0 0 -10px; border-left: 12px solid transparent; border-right: 12px solid transparent; border-bottom: 26px solid var(--cyan); filter: drop-shadow(0 0 6px var(--cyan)); transform-origin: 12px 14px; }
+  #reticle { width: 36px; height: 36px; margin: -18px 0 0 -18px; border: 2px solid #ffffffcc; border-radius: 50%; box-shadow: 0 0 6px #0008; }
+  #noseMark { width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+  #noseMark::before, #noseMark::after { content: ''; position: absolute; background: var(--gold); box-shadow: 0 0 4px #000a; }
+  #noseMark::before { left: 6px; top: 0; width: 2px; height: 14px; }
+  #noseMark::after { top: 6px; left: 0; height: 2px; width: 14px; }
+  #warn { position: fixed; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 90px 30px #ff1f1f; z-index: 4; }
+  #helpLine { position: absolute; left: 16px; bottom: 12px; font-size: 12.5px; font-weight: 600; opacity: .8; }
+
+  /* Táctil */
+  #touch { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  #tStick { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; pointer-events: auto; }
+  #tKnob { position: fixed; width: 92px; height: 92px; border-radius: 50%; border: 3px solid #ffffff88; background: #ffffff22; transform: translate(-50%, -50%); pointer-events: none; }
+  #touch [data-btn] { position: absolute; pointer-events: auto; width: 78px; height: 78px; border-radius: 50%; font-size: 13px; background: #0007; border: 2px solid #ffffff55; padding: 0; }
+  [data-btn=boost] { right: 22px; bottom: 30px; width: 96px !important; height: 96px !important; border-color: var(--gold) !important; }
+  [data-btn=trick] { right: 132px; bottom: 30px; border-color: var(--cyan) !important; }
+  [data-btn=brake] { right: 40px; bottom: 140px; }
+  [data-btn=cam] { right: 22px; top: 92px; width: 56px !important; height: 56px !important; }
+  [data-btn=pause] { left: 50%; top: 10px; transform: translateX(-50%); width: 56px !important; height: 44px !important; border-radius: 12px !important; }
+
+  @media (max-width: 760px) {
+    .overlay { place-items: end center; padding: 12px; }
+    .panel { max-height: 70vh; }
+    h1 { font-size: 40px; }
+    #center { font-size: 60px; }
+    #time { font-size: 26px; } #style { font-size: 22px; } #speed { font-size: 34px; }
+    .fd { font-size: 20px; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="loading">Cargando…</div>
+
+<div id="menu" class="overlay" hidden>
+  <div class="panel">
+    <h1>JETTISM</h1>
+    <p class="sub">Carreras de jets en mundos de arte</p>
+    <label>Tu nombre <input id="name" maxlength="14" autocomplete="off" aria-label="Tu nombre"></label>
+    <button id="btnTrial" class="primary big">Contrarreloj · 3 vueltas</button>
+    <div class="row">
+      <button id="btnFree">Vuelo libre</button>
+      <button id="btnSettings">Ajustes</button>
+      <button id="btnControls">Controles</button>
+    </div>
+    <p id="records" class="records"></p>
+    <p class="hint">Mapa: <b>Desierto de los sueños</b> (versión en bruto). Parte 1 de 6: vuelo, piruetas y contrarreloj. El online, el hangar y el resto de modos llegan en las siguientes partes.</p>
+    <p class="hint">Sin cookies ni analítica: tus ajustes, récords y fantasma se guardan solo en este navegador. <a href="privacidad.html" style="color:var(--cyan)">Privacidad</a></p>
+  </div>
+</div>
+
+<div id="settingsPanel" class="overlay" hidden>
+  <div class="panel">
+    <h2>Ajustes</h2>
+    <label>Controles <select id="scheme"><option value="mouse">Ratón: el morro sigue a la mira</option><option value="classic">Clásico: cabeceo, alabeo y timón</option></select></label>
+    <label>Ayudas de vuelo <select id="assist"><option value="0">Ninguna</option><option value="1">Media</option><option value="2">Alta</option></select></label>
+    <label>Invertir cabeceo <input type="checkbox" id="invert"></label>
+    <label>Sensibilidad del ratón <input type="range" id="sens" min="0.4" max="2.5" step="0.05"></label>
+    <label>Volumen <input type="range" id="volume" min="0" max="1" step="0.05"></label>
+    <label>Gráficos <select id="quality"><option value="ultra">Ultra</option><option value="alta">Altos</option><option value="baja">Rendimiento</option></select></label>
+    <label id="gyroRow" hidden>Giroscopio (inclinar el móvil) <input type="checkbox" id="gyro"></label>
+    <p class="hint">Ayudas: <b>Media</b> nivela las alas al soltar, avisa antes de chocar y marca la siguiente puerta. <b>Alta</b> además corrige un poco el rumbo para no chocar. Cambiar los gráficos recarga la página.</p>
+    <button class="big settingsBack" style="margin-top:12px">Volver</button>
+  </div>
+</div>
+
+<div id="controlsPanel" class="overlay" hidden>
+  <div class="panel">
+    <h2>Controles</h2>
+    <div class="help">
+      <h3>Ratón (por defecto)</h3>
+      <b>Ratón</b>: apuntar, el jet sigue a la mira · <kbd>W</kbd>/<kbd>S</kbd> gas y freno · <kbd>A</kbd>/<kbd>D</kbd> alabeo · <kbd>Q</kbd>/<kbd>E</kbd> timón y derrape · <kbd>Shift</kbd> turbo
+      <h3>Clásico</h3>
+      <kbd>W</kbd>/<kbd>S</kbd> cabeceo (<kbd>S</kbd> tira y sube el morro) · <kbd>A</kbd>/<kbd>D</kbd> alabeo · <kbd>Q</kbd>/<kbd>E</kbd> timón · <kbd>↑</kbd>/<kbd>↓</kbd> gas y freno · <kbd>Shift</kbd> turbo
+      <h3>Siempre</h3>
+      <kbd>Espacio</kbd> + dirección: pirueta · <kbd>C</kbd> cámara · <kbd>V</kbd> mirar atrás · <kbd>R</kbd> volver al recorrido · <kbd>Esc</kbd> pausa
+      <h3>Mando</h3>
+      Stick izquierdo: dirigir · <b>RT</b>/<b>LT</b> gas y freno · <b>LB</b>/<b>RB</b> timón · <b>A</b> turbo · <b>X</b> + stick: pirueta · <b>Y</b> cámara · <b>B</b> mirar atrás · stick derecho: mirar alrededor · <b>Start</b> pausa · <b>Select</b> volver al recorrido
+      <h3>Piruetas (Espacio o X + …)</h3>
+      <table class="combos" id="comboTable"></table>
+      <p class="hint">«Tirar» es <kbd>S</kbd> o el stick hacia ti; «empujar», <kbd>W</kbd> o el stick hacia delante. Con el botón mantenido puedes encadenar varias. Hechas a mano valen ×1,5. Si las encadenas con menos de 2 s entre una y otra, el multiplicador sube hasta ×2. Todas cargan turbo, y repetir la misma seguida carga menos.</p>
+    </div>
+    <button class="big settingsBack" style="margin-top:12px">Volver</button>
+  </div>
+</div>
+
+<div id="pause" class="overlay centered" hidden>
+  <div class="panel">
+    <h2>Pausa</h2>
+    <button id="btnResume" class="primary big">Continuar</button>
+    <div class="row">
+      <button id="btnRestart">Reiniciar</button>
+      <button id="btnPSettings">Ajustes</button>
+      <button id="btnPControls">Controles</button>
+    </div>
+    <div style="text-align:center"><button id="btnQuit" class="link">Salir al menú</button></div>
+  </div>
+</div>
+
+<div id="results" class="overlay centered" hidden>
+  <div class="panel">
+    <h2 id="resTitle">¡Meta!</h2>
+    <div id="resBody" class="help"></div>
+    <div class="row">
+      <button id="btnAgain" class="primary">Repetir</button>
+      <button id="btnResMenu">Menú</button>
+    </div>
+  </div>
+</div>
+
+<div id="hud" hidden>
+  <div id="tl" class="sh"><div id="lap"></div><div id="time"></div><div id="lapTime"></div><div id="best"></div></div>
+  <div id="tr" class="sh"><small>ESTILO</small><div id="style">0</div><div id="chain"></div><div id="chainTrack"><div id="chainBar"></div></div></div>
+  <div id="section" class="sh"></div>
+  <div id="feed"></div>
+  <div id="center" class="sh"></div>
+  <div id="marker" hidden><div></div><div id="markerDist" class="sh"></div></div>
+  <div id="edgeArrow" hidden></div>
+  <div id="reticle" hidden></div>
+  <div id="noseMark" hidden></div>
+  <div id="bottom" class="sh">
+    <div id="speedRow"><span id="speed">0</span><small>km/h</small><span id="alt"></span></div>
+    <div id="turbo"><div id="turboFill"></div></div>
+    <div id="turboLbl">TURBO</div>
+  </div>
+  <div id="helpLine" class="sh"></div>
+</div>
+<div id="warn"></div>
+
+<div id="touch" hidden>
+  <div id="tStick"></div>
+  <div id="tKnob" hidden></div>
+  <button data-btn="boost">TURBO</button>
+  <button data-btn="trick">PIRUETA</button>
+  <button data-btn="brake">FRENO</button>
+  <button data-btn="cam">CÁM</button>
+  <button data-btn="pause">❚❚</button>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
