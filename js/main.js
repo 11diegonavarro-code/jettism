@@ -1,8 +1,9 @@
 // Jettism · parte 1: vuelo, piruetas, contrarreloj con fantasma y vuelo libre.
 import * as THREE from 'three';
-import { createWorld, QUALITY } from './world.js';
+import { createWorld, QUALITY, SUN } from './world.js';
 import { Track, SECTIONS } from './track.js';
 import { CourseView } from './course-view.js';
+import { Clouds } from './clouds.js';
 import { buildJet, DEFAULT_LOOK } from './jet-model.js';
 import { Jet, steerToward, applyAssist, collisionWarning } from './flight.js';
 import { Race } from './race.js';
@@ -18,7 +19,8 @@ import { V3, Quat, clamp, damp } from './math.js';
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
-const STEP = 1 / 120, MAP = 'desierto';
+// la clave del mapa cambia cuando cambia el recorrido, para no mezclar récords y fantasmas de versiones distintas
+const STEP = 1 / 120, MAP = 'desierto2';
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
@@ -47,8 +49,12 @@ document.body.prepend(renderer.domElement);
 const world = createWorld(renderer, settings.quality);
 const { scene, camera } = world;
 const track = new Track();
-const view = new CourseView(scene, track);
+const view = new CourseView(scene, track, world.quality);
+const clouds = new Clouds(scene, track, world.quality, SUN);
 const fx = new FX(scene, camera, world.quality);
+// tramos con clima propio: noche tras la puerta y niebla rosa en el bosque
+const ZONE = { night0: track.sOf('puerta'), night1: track.sOf('lago'), pink0: track.sOf('bosque'), pink1: track.sOf('acantilado') };
+const atm = { night: 0, pink: 0, steamT: 0 };
 const sound = new Sound();
 sound.volume = settings.volume;
 const input = new Input(renderer.domElement, settings);
@@ -448,6 +454,25 @@ function helpLine() {
         : 'W/S: cabeceo · A/D: alabeo · ↑/↓: gas · Shift: turbo · Espacio + dirección: pirueta · Esc: pausa';
 }
 
+// ---------- Clima por tramos, vapor del tren y avisos de viento ----------
+const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function updateAtmosphere(dt) {
+  const s = race.s || 0;
+  const nightT = sstep(ZONE.night0 - 5, ZONE.night0 + 55, s) * (1 - sstep(ZONE.night1 - 260, ZONE.night1 + 40, s));
+  const pinkT = sstep(ZONE.pink0 - 160, ZONE.pink0 + 120, s) * (1 - sstep(ZONE.pink1 - 220, ZONE.pink1 + 40, s));
+  const k = cam.cut ? 1 : damp(3.5, dt);
+  atm.night += (nightT - atm.night) * k;
+  atm.pink += (pinkT - atm.pink) * k;
+  world.setAtmosphere(atm.night, atm.pink);
+  world.update(dt, game.clock);
+  clouds.update(scene.fog, atm.night);
+  if ((atm.steamT -= dt) <= 0) { atm.steamT = 0.06; const c = view.trainChimney(); if (c) fx.steam(c); }
+  if (playing() && jet.alive && game.phase !== 'countdown') {
+    if (jet.thermal > 0.3 && !game.inThermal) { game.inThermal = true; hud.feed('TÉRMICA ↑ +TURBO', 'near'); } else if (!jet.thermal) game.inThermal = false;
+    if (jet.cross > 1 && !game.inWind) { game.inWind = true; hud.feed('VIENTO LATERAL', 'info'); } else if (!jet.cross) game.inWind = false;
+  }
+}
+
 // ---------- Resolución dinámica ----------
 let perfT = 0, perfN = 0, perfSlow = 0, warmup = 3;
 const perf = { frames: 0, slow: 0, sum: 0 };
@@ -525,6 +550,7 @@ function frame(now) {
   } else ghostModel.group.visible = false;
 
   view.update(game.clock);
+  updateAtmosphere(dt);
   if (!game.paused) {
     // estelas de condensación en las puntas de las alas al tirar fuerte o ir muy rápido
     const k = jet.alive ? clamp(Math.max((jet.gload - 3.5) / 5, (jet.speed - 128) / 25), 0, 1) : 0;
@@ -610,7 +636,7 @@ if (DEBUG) {
   window.jetDebug = {
     game, jet, race, track, style, settings, ap, view, fx, sound, world, renderer, cam, aim, rec,
     startTrial, startFree, toMenu, respawn,
-    THREE, scene, camera, input, hud, ctl, combo,
+    THREE, scene, camera, input, hud, ctl, combo, clouds, atm,
     get st() { return st; },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; jet.spawn(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); ap.hint = -1; prevPos.copy(jet.pos); prevQ.copy(jet.q); syncAim(); cam.cut = true; },

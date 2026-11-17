@@ -196,6 +196,8 @@ export class FX {
       this.glow.emit(p.x + d.x * r, p.y + d.y * r, p.z + d.z * r, d.x * 8, d.y * 8, d.z * 8, { life: 0.7, size: 1.4, drag: 2, color: col });
     }
   }
+  // vapor de la locomotora
+  steam(p) { this.smoke.emit(p.x, p.y, p.z, rnd(6, 11), rnd(6, 10), rnd(-2, 2), { life: rnd(2, 3.2), size: 3, grow: rnd(14, 24), drag: 0.6, grav: -1.5, alpha: 0.55, color: 0xf2efe9 }); }
   // humo del motor al chocar de refilón
   puff(p) { this.smoke.emit(p.x, p.y, p.z, rnd(-3, 3), rnd(0, 3), rnd(-3, 3), { life: 1.2, size: 2, grow: 10, drag: 1, alpha: 0.5, color: 0x666060 }); }
 

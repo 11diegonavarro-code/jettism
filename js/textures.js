@@ -105,6 +105,31 @@ export function noiseTexture({ size = 512, kind = 'sand', seed = 3 }) {
   throw new Error('textura desconocida ' + kind);
 }
 
+// Papel grueso con pliegues y algún trazo de tinta (para los puentes de papel)
+export function paperTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d'), R = rng(21);
+  g.fillStyle = '#f4ecdc'; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(120,90,60,${R() * 0.05})`; g.fillRect(R() * 512, R() * 512, 2, 2); }
+  // pliegues: una línea clara y otra oscura juntas
+  for (const x of [128, 256, 384]) {
+    g.fillStyle = 'rgba(0,0,0,0.13)'; g.fillRect(x - 2, 0, 2, 512);
+    g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x, 0, 2, 512);
+  }
+  g.strokeStyle = 'rgba(40,40,90,0.35)'; g.lineWidth = 2;
+  for (let k = 0; k < 9; k++) {
+    const y = 40 + k * 52;
+    g.beginPath(); g.moveTo(24, y);
+    for (let x = 24; x < 490; x += 18) g.lineTo(x, y + Math.sin(x * 0.07 + k) * 3 + (R() - 0.5) * 3);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
 export function checkerTexture(n = 8) {
   const size = 256;
   return canvasTex(size, (x, y) => ((Math.floor((x / size) * n) + Math.floor((y / size) * n)) % 2 ? [20, 20, 24] : [245, 242, 235]));

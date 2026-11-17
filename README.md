@@ -4,12 +4,15 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
 
 **Jugar:** https://11diegonavarro-code.github.io/jettism/
 
-## Qué hay (parte 1 de 6)
+## Qué hay (partes 1 y 2 de 6)
 
 - Vuelo arcade con derrape aéreo, turbo, roces y estampido sónico.
 - Diez piruetas, por combo (Espacio + dirección) o hechas a mano, con cadenas de estilo.
 - Contrarreloj de 3 vueltas con fantasma de tu mejor vuelta, y vuelo libre.
-- Mapa «Desierto de los sueños» (versión en bruto) con torres, cajones, escaleras, péndulos, una puerta y una ballena de nubes.
+- Mapa «Desierto de los sueños»:
+  - **Recorrido:** bosque de torres de cera, acantilado de cajones con un atajo por dentro de un cajón gigante, escaleras que giran en la horquilla y péndulos colgados de las nubes.
+  - **Obstáculos:** una puerta que lleva a la noche, puentes de papel que se pliegan, una ballena de nubes y un tren de vapor sobre el lago espejo.
+  - **Clima por tramos:** calima, niebla rosa, viento lateral, corrientes térmicas y noche de remolinos.
 - Teclado y ratón, esquema clásico, mando y pantalla táctil.
 
 ## Técnica

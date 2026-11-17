@@ -10,7 +10,7 @@ export const F = {
   grip: 5, driftGrip: 1.0, boostDrain: 22, sonic: 140,
 };
 
-const _lat = new V3(), _v = new V3(), _ax = new V3(), _n = new V3(), _l = new V3(), _u = new V3();
+const _lat = new V3(), _v = new V3(), _ax = new V3(), _n = new V3(), _l = new V3(), _u = new V3(), _wind = new V3();
 const _o = { pitch: 0, roll: 0, grip: null, drag: 0, sink: 0, latAcc: 0 };
 
 export class Jet {
@@ -112,6 +112,13 @@ export class Jet {
     if (o.sink) this.vel.y -= o.sink * dt;
     if (o.latAcc) this.vel.addScaled(this.right, o.latAcc * dt);
     if (this.pos.y > 900) this.vel.y -= 25 * dt;
+    // viento: corrientes térmicas (suben y cargan turbo) y viento lateral junto al acantilado
+    if (track.windAt) {
+      const w = track.windAt(this.pos, now, _wind);
+      this.vel.addScaled(_wind, dt);
+      this.thermal = w.thermal; this.cross = w.cross;
+      if (w.thermal > 0) this.turbo = Math.min(100, this.turbo + 7 * w.thermal * dt);
+    }
     // en pérdida el morro cae hacia donde va el jet
     if (lift < 1 && !this.trick && this.vel.lenSq() > 1) {
       _v.copy(this.vel).normalize();
