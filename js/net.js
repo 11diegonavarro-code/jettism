@@ -11,7 +11,9 @@ const ICE = {
     { urls: 'stun:global.stun.twilio.com:3478' },
   ],
 };
-const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+// el último va por el puerto 443 (el de las webs): sirve en redes que bloquean los demás puertos
+const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081/mqtt', 'wss://public.cloud.shiftr.io:443'];
+const LOGIN = url => (url.includes('shiftr.io') ? { username: 'public', password: 'public' } : {});
 const DIRECT_TIMEOUT = 6000, RELAY_TIMEOUT = 9000;
 const rid = n => Array.from({ length: n }, () => ALPHA[Math.floor(Math.random() * ALPHA.length)]).join('');
 const decode = p => { try { return JSON.parse(new TextDecoder().decode(p)); } catch { return null; } };
@@ -22,7 +24,7 @@ const hasMqtt = () => typeof mqtt === 'object' && typeof mqtt.connect === 'funct
 function connectBroker(url) {
   return new Promise((resolve, reject) => {
     if (!hasMqtt()) { reject(new Error('mqtt no cargado')); return; }
-    const c = mqtt.connect(url, { clientId: 'jt_' + rid(10), clean: true, connectTimeout: 7000, reconnectPeriod: 3000, keepalive: 20 });
+    const c = mqtt.connect(url, { clientId: 'jt_' + rid(10), clean: true, connectTimeout: 7000, reconnectPeriod: 3000, keepalive: 20, ...LOGIN(url) });
     const t = setTimeout(() => { c.end(true); reject(new Error('timeout ' + url)); }, 8000);
     c.once('connect', () => { clearTimeout(t); resolve(c); });
   });

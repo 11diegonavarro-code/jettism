@@ -1,7 +1,9 @@
 // Tabla mundial de récords, sin servidor propio: cada jugador deja su mejor tiempo (con su fantasma) como mensaje
-// retenido en los servidores MQTT públicos que ya usa el online, y al consultar se juntan los de los tres.
+// retenido en los servidores MQTT públicos que ya usa el online, y al consultar se juntan los de todos.
 // Es pública y no se comprueba: cualquiera puede leerla y escribir en ella.
-const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+// el último va por el puerto 443: sirve en redes que bloquean los demás puertos
+const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081/mqtt', 'wss://public.cloud.shiftr.io:443'];
+const LOGIN = url => (url.includes('shiftr.io') ? { username: 'public', password: 'public' } : {});
 const TOPIC = 'jettism/v1/records/';
 const rid = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -15,11 +17,15 @@ export class Board {
     if (this.ready) return this.ready;
     if (typeof mqtt !== 'object' || typeof mqtt.connect !== 'function') return Promise.resolve([]);
     this.ready = Promise.allSettled(BROKERS.map(url => new Promise((res, rej) => {
-      const c = mqtt.connect(url, { clientId: 'jtr_' + rid(10), clean: true, connectTimeout: 6000, reconnectPeriod: 0, keepalive: 30 });
-      const t = setTimeout(() => { c.end(true); rej(new Error('tiempo agotado')); }, 7000);
+      const c = mqtt.connect(url, { clientId: 'jtr_' + rid(10), clean: true, connectTimeout: 9000, reconnectPeriod: 0, keepalive: 30, ...LOGIN(url) });
+      const t = setTimeout(() => { c.end(true); rej(new Error('tiempo agotado')); }, 10000);
       c.on('connect', () => { clearTimeout(t); res(c); });
       c.on('error', () => { /* se ignora: basta con que responda uno */ });
-    }))).then(rs => (this.clients = rs.filter(r => r.status === 'fulfilled').map(r => r.value)));
+    }))).then(rs => {
+      this.clients = rs.filter(r => r.status === 'fulfilled').map(r => r.value);
+      if (!this.clients.length) this.ready = null; // ninguno respondió: la próxima vez se vuelve a intentar
+      return this.clients;
+    });
     return this.ready;
   }
   touch() {

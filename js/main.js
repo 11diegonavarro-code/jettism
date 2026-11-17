@@ -1033,7 +1033,8 @@ function challengeLink() {
   if (!g || !rec.total) return null;
   const data = JSON.stringify({ v: 1, k: MAP, m: track.map.id, c: courseCode || '', n: settings.name, t: Math.round(rec.total * 1000), g: packGhost(decodeGhost(g)) });
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(data))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `${location.origin}${location.pathname}?reto=${b64}`;
+  // va tras «#»: el navegador no lo envía al servidor (GitHub Pages rechaza direcciones tan largas)
+  return `${location.origin}${location.pathname}#reto=${b64}`;
 }
 
 function onLap(e) {
@@ -2219,15 +2220,17 @@ if (touchDevice && settings.gyro) input.enableGyro();
 const nameEl = $('name');
 nameEl.value = settings.name;
 nameEl.addEventListener('input', () => { settings.name = cleanName(nameEl.value); store.set('jt-name', settings.name); if (me && game.phase === 'menu') me.name = settings.name; });
-addEventListener('hashchange', setupJoin);
+// un reto pegado en una pestaña ya abierta: se recarga para leerlo
+addEventListener('hashchange', () => { if (location.hash.startsWith('#reto=')) location.reload(); else setupJoin(); });
 
 // ---------- Arranque ----------
 renderColors();
 // ?reto=… : el fantasma y el tiempo de un amigo (y su circuito, si es propio) para batirlo
-if (params.has('reto')) {
+const retoRaw = params.get('reto') || (location.hash.startsWith('#reto=') ? location.hash.slice(6) : null);
+if (retoRaw) {
   let msg;
   try {
-    const raw = params.get('reto'), txt = new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((raw.length + 3) % 4)), c => c.charCodeAt(0)));
+    const raw = retoRaw, txt = new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((raw.length + 3) % 4)), c => c.charCodeAt(0)));
     const d = JSON.parse(txt);
     if (d.c) { const c = courses.save(d.c); selectMap(c.map); applyMap(c.map); selectCourse(d.c); applyCourse(d.c); } else { selectMap(d.m); applyMap(d.m); selectCourse(''); applyCourse(null); }
     if (d.k !== MAP) throw new Error('otro mapa');
@@ -2236,7 +2239,7 @@ if (params.has('reto')) {
   } catch { msg = 'El enlace del reto no es válido'; }
   params.delete('reto');
   const q = [...params].map(([k, v]) => (v ? `${k}=${encodeURIComponent(v)}` : k)).join('&');
-  history.replaceState(null, '', location.pathname + (q ? `?${q}` : '') + location.hash);
+  history.replaceState(null, '', location.pathname + (q ? `?${q}` : '') + (location.hash.startsWith('#reto=') ? '' : location.hash));
   setTimeout(() => toast(msg), 900);
 }
 // ?circuito=… : se guarda en «Mis circuitos», queda elegido y se quita de la dirección
