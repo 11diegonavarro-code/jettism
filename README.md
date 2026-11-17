@@ -4,7 +4,14 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
 
 **Jugar:** https://11diegonavarro-code.github.io/jettism/
 
-## Qué hay (partes 1, 2 y 3 de 6)
+## Qué hay (partes 1 a 4 de 6)
+
+- **Hangar:**
+  - Piezas: 4 morros, 4 alas, 4 motores y 4 colas, que cambian velocidad, aceleración, giro, turbo y piruetas. Todas las combinaciones suman lo mismo.
+  - Pintura en tres zonas con cuatro acabados.
+  - 30 calcomanías en 6 sitios.
+  - Humo y llama de color, casco del piloto, y número y nombre en la cola.
+  - Cada motor suena distinto, y tu jet llega así a la sala online.
 
 - Vuelo arcade con derrape aéreo, turbo, roces y estampido sónico.
 - Diez piruetas, por combo (Espacio + dirección) o hechas a mano, con cadenas de estilo.

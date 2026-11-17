@@ -267,9 +267,10 @@ export class FX {
     this.coneT = 0;
   }
 
-  eject(p, v, look) {
-    const g = new THREE.Group();
-    const pilot = buildPilot(look);
+  // cfg: configuración del jet (casco del piloto y colores del paracaídas)
+  eject(p, v, cfg) {
+    const g = new THREE.Group(), look = { c1: cfg.paint.c1, c2: cfg.paint.c2 };
+    const pilot = buildPilot(cfg);
     const canopyGeo = new THREE.SphereGeometry(4.2, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.42);
     const cols = [];
     const pos = canopyGeo.attributes.position;

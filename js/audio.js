@@ -1,10 +1,19 @@
 // Sonido sintetizado con Web Audio: turbina, rugido, postcombustión, viento, estampido sónico,
 // roces, piruetas, anillos, explosión y paracaídas. Sin archivos de audio.
 
+// Timbre de cada motor del hangar: tono base de la turbina, recorrido, cuánto ruge y cuánto silba
+export const ENGINE_SOUND = {
+  doble: { base: 520, span: 900, roar: 1, whine: 1, pitch: 1 },
+  simple: { base: 380, span: 700, roar: 1.35, whine: 0.7, pitch: 0.8 },
+  anillo: { base: 780, span: 1250, roar: 0.55, whine: 1.7, pitch: 1.4 },
+  vectorial: { base: 450, span: 820, roar: 1.2, whine: 0.9, pitch: 0.9 },
+};
+
 // Motor de otro jet, en 3D y con efecto Doppler hecho a mano (Web Audio ya no lo trae)
 const C_SOUND = 343;
 export class RemoteVoice {
-  constructor(sound) {
+  constructor(sound, type = 'doble') {
+    this.k = (ENGINE_SOUND[type] || ENGINE_SOUND.doble).pitch;
     const ctx = this.ctx = sound.ctx;
     this.osc = ctx.createOscillator(); this.osc.type = 'sawtooth'; this.osc.frequency.value = 160;
     this.osc2 = ctx.createOscillator(); this.osc2.type = 'sine'; this.osc2.frequency.value = 900;
@@ -25,7 +34,7 @@ export class RemoteVoice {
     const ux = dx / d, uy = dy / d, uz = dz / d;
     const vs = src.v.x * ux + src.v.y * uy + src.v.z * uz, vl = lis.v.x * ux + lis.v.y * uy + lis.v.z * uz;
     const k = Math.min(2.2, Math.max(0.5, (C_SOUND - vl) / (C_SOUND - vs)));
-    const speed = Math.hypot(src.v.x, src.v.y, src.v.z), base = 120 + speed * 0.9 + (boost ? 60 : 0);
+    const speed = Math.hypot(src.v.x, src.v.y, src.v.z), base = (120 + speed * 0.9 + (boost ? 60 : 0)) * this.k;
     this.osc.frequency.setTargetAtTime(base * k, t, 0.05);
     this.osc2.frequency.setTargetAtTime((700 + speed * 4) * k, t, 0.05);
     this.filter.frequency.setTargetAtTime((boost ? 1800 : 1100) * k, t, 0.05);
@@ -40,7 +49,8 @@ export class RemoteVoice {
 }
 
 export class Sound {
-  constructor() { this.volume = 0.6; }
+  constructor() { this.volume = 0.6; this.eng = ENGINE_SOUND.doble; }
+  setEngine(type) { this.eng = ENGINE_SOUND[type] || ENGINE_SOUND.doble; }
 
   init() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
@@ -107,11 +117,12 @@ export class Sound {
     if (!this.ctx) return;
     const t = this.ctx.currentTime, k = 0.08, o = on ? 1 : 0;
     const rpm = Math.min(1, power * 0.75 + (boost ? 0.35 : 0) + speed / 600);
-    this.t1.frequency.setTargetAtTime(520 + rpm * 900, t, k);
-    this.t2.frequency.setTargetAtTime((520 + rpm * 900) * 1.505, t, k);
-    this.turbine.gain.setTargetAtTime(o * (0.025 + rpm * 0.03), t, k);
-    this.roarF.frequency.setTargetAtTime(260 + rpm * 900, t, k);
-    this.roar.gain.setTargetAtTime(o * (0.18 + power * 0.32), t, k);
+    const E = this.eng, f = E.base + rpm * E.span;
+    this.t1.frequency.setTargetAtTime(f, t, k);
+    this.t2.frequency.setTargetAtTime(f * 1.505, t, k);
+    this.turbine.gain.setTargetAtTime(o * (0.025 + rpm * 0.03) * E.whine, t, k);
+    this.roarF.frequency.setTargetAtTime((260 + rpm * 900) * (E.roar > 1 ? 0.8 : 1), t, k);
+    this.roar.gain.setTargetAtTime(o * (0.18 + power * 0.32) * E.roar, t, k);
     this.burn.gain.setTargetAtTime(o * (boost ? 0.32 : 0), t, 0.06);
     this.burnF.frequency.setTargetAtTime(boost ? 900 + Math.random() * 500 : 500, t, 0.03);
     this.rumbleG.gain.setTargetAtTime(o * (boost ? 0.35 : 0.04 + power * 0.06), t, 0.08);

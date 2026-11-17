@@ -125,6 +125,20 @@
   #toast { position: fixed; top: 18%; left: 50%; transform: translate(-50%, 0); font-size: 24px; font-weight: 900; opacity: 0; pointer-events: none; z-index: 15; text-shadow: 0 3px 0 #0009, 0 0 12px #000a; white-space: nowrap; }
   #toast.on { animation: toast 2.2s ease-out; }
   @keyframes toast { 0% { opacity: 0; transform: translate(-50%, 10px); } 10%, 75% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
+  .tabs { display: flex; gap: 6px; margin: 0 0 6px; flex-wrap: wrap; }
+  .tabs button { flex: 1; padding: 8px 6px; font-size: 13px; }
+  .tabs button.on, .opts button.on, .decals button.on { background: var(--rose); border-color: transparent; color: #1a1030; }
+  .opts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .opts button { padding: 6px 10px; font-size: 13px; border-radius: 10px; }
+  .swatches.left { justify-content: flex-start; margin: 2px 0 6px; }
+  .decals { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+  .decals button { padding: 3px; border-radius: 8px; aspect-ratio: 1; display: grid; place-items: center; font-size: 16px; }
+  .decals img { width: 100%; height: 100%; filter: drop-shadow(0 0 1px #000); }
+  #hStats .stat { display: grid; grid-template-columns: 92px 1fr 22px; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 700; margin: 3px 0; }
+  #hStats .bar { height: 8px; background: #ffffff1c; border-radius: 4px; overflow: hidden; }
+  #hStats .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), var(--gold)); }
+  #hStats b { color: var(--text); text-align: right; }
+  #hangar .panel { max-height: calc(100vh - 32px); }
   [data-btn=smoke] { right: 22px; top: 160px; width: 56px !important; height: 56px !important; font-size: 11px !important; }
 
   /* Táctil */
@@ -172,7 +186,10 @@
       <button id="btnHost">Crear sala online</button>
     </div>
     <div class="row">
+      <button id="btnHangar">Hangar</button>
       <button id="btnFree">Vuelo libre</button>
+    </div>
+    <div class="row">
       <button id="btnSettings">Ajustes</button>
       <button id="btnControls">Controles</button>
     </div>
@@ -181,7 +198,7 @@
     </details>
     <p id="menuMsg" class="msg"></p>
     <p id="records" class="records"></p>
-    <p class="hint">Mapa: <b>Desierto de los sueños</b>. Busca el atajo del cajón gigante en el acantilado, aprovecha las térmicas sobre el lago y cruza la puerta hacia la noche. Partes 1 a 3 de 6: el hangar y el resto de modos llegan en las siguientes.</p>
+    <p class="hint">Mapa: <b>Desierto de los sueños</b>. Busca el atajo del cajón gigante en el acantilado, aprovecha las térmicas sobre el lago y cruza la puerta hacia la noche. Partes 1 a 4 de 6: prepara tu jet en el hangar. Los modos con objetos, combate y copa llegan en la siguiente.</p>
     <p class="hint">Sin cookies ni analítica: tus ajustes, récords y fantasma se guardan solo en este navegador. En el modo online se comparten tu nombre, tu color y tu posición con la sala. <a href="privacidad.html" style="color:var(--cyan)">Privacidad</a></p>
   </div>
 </div>
@@ -233,6 +250,24 @@
       <button id="btnPControls">Controles</button>
     </div>
     <div style="text-align:center"><button id="btnQuit" class="link">Salir al menú</button></div>
+  </div>
+</div>
+
+<div id="hangar" class="overlay" hidden>
+  <div class="panel">
+    <h2>Hangar</h2>
+    <div class="tabs">
+      <button data-tab="piezas">Piezas</button><button data-tab="pintura">Pintura</button><button data-tab="calcos">Calcomanías</button><button data-tab="extras">Piloto y extras</button>
+    </div>
+    <div id="hTab"></div>
+    <h3>Estadísticas</h3>
+    <div id="hStats"></div>
+    <p class="hint">Cada pieza mejora unas cosas y empeora otras: todas las combinaciones suman lo mismo. Arrastra para girar el jet y usa la rueda para acercarte.</p>
+    <div class="row">
+      <button id="hRandom">Aleatorio</button>
+      <button id="hReset">Restablecer</button>
+      <button id="hDone" class="primary">Listo</button>
+    </div>
   </div>
 </div>
 

@@ -180,7 +180,7 @@ export class Track {
     CP.forEach((_, i) => {
       const P = S.pointAt(cp[i]), T = S.tangentAt(cp[i]);
       const ring = i === 0 ? 30 : i === GATE.horquilla ? 24 : 18;
-      this.gates.push({ i, s: cp[i], p: P, t: T, ring, cp: i === GATE.contrafuerte ? 125 : 55 });
+      this.gates.push({ i, s: cp[i], p: P, t: T, ring, cp: i === GATE.contrafuerte ? 125 : 75 });
     });
     // Anillos de turbo pequeños
     for (const [i, f] of [[GATE.salida, 0.55], [GATE.contrafuerte, 0.62], [GATE.horquilla + 1, 0.4], [GATE.lago - 1, 0.5]]) {

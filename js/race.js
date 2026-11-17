@@ -51,6 +51,11 @@ export class Race {
     }
     const n = this.track.spline.nearest(jet.pos, this.hint);
     this.hint = n.idx; this.s = n.s; this.off = n.d;
+    // ¿se ha dejado atrás la siguiente puerta sin cruzarla? (más de 200 m por delante de ella en el recorrido)
+    const L = this.track.length;
+    let ahead = (this.s - this.track.gates[this.next].s) % L;
+    if (ahead > L / 2) ahead -= L; else if (ahead < -L / 2) ahead += L;
+    this.missed = !this.finished && ahead > 200;
     this.prev.copy(jet.pos);
   }
 

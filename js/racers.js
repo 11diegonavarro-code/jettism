@@ -5,9 +5,10 @@ import { Jet } from './flight.js';
 import { Race } from './race.js';
 import { Autopilot } from './ai.js';
 import { Style, ManualDetector } from './tricks.js';
-import { buildJet, DEFAULT_LOOK } from './jet-model.js';
+import { buildJet } from './jet-model.js';
 import { SkySmoke } from './fx.js';
 import { V3, Quat } from './math.js';
+import { sanitizeCfg, statMultipliers } from './hangar-data.js';
 
 export const COLORS = ['#d62839', '#2f6fe0', '#21b573', '#f2b630', '#8b5cf6', '#f97316', '#0fb5c4', '#ec4899', '#f3efe6', '#2d3142'];
 export const BOT_NAMES = ['Pincel', 'Ocre', 'Bermellón', 'Lienzo', 'Acuarela', 'Carboncillo', 'Óleo', 'Sepia', 'Cobalto', 'Índigo', 'Gouache', 'Témpera'];
@@ -17,27 +18,24 @@ export const DIFFICULTY = {
   dificil: { label: 'Difícil', speed: 1.03, skill: 0.95 },
 };
 
-// Aspecto a partir del color principal; el humo es una versión clara del mismo color
-export function lookFor(color) {
-  const c = new THREE.Color(color), light = c.getHSL({}).l;
-  const smoke = new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.35);
-  return { ...DEFAULT_LOOK, c1: color, c2: light > 0.8 ? '#2d3142' : '#f3efe6', smoke: '#' + smoke.getHexString() };
-}
-
 export class Racer {
-  constructor(scene, track, { id, name, color, bot = false, owned = false, me = false, laps = 3, diff = 'normal' }) {
-    Object.assign(this, { id, name, color, bot, owned, me, scene });
+  // cfg: configuración del hangar (piezas, pintura, calcomanías…); las piezas cambian las estadísticas del jet
+  constructor(scene, track, { id, name, cfg, bot = false, owned = false, me = false, laps = 3, diff = 'normal' }) {
+    Object.assign(this, { id, name, bot, owned, me, scene });
     const D = DIFFICULTY[diff] || DIFFICULTY.normal;
-    this.look = lookFor(color);
-    this.jet = new Jet(bot ? { speed: D.speed } : {});
+    this.cfg = sanitizeCfg(cfg);
+    this.color = this.cfg.paint.c1;
+    const stats = statMultipliers(this.cfg);
+    if (bot) stats.speed *= D.speed;
+    this.jet = new Jet(stats);
     this.race = new Race(track, laps);
     this.ap = bot ? new Autopilot(track, { skill: D.skill }) : null;
     this.style = new Style();
     this.manual = new ManualDetector();
     this.ctl = { pitch: 0, roll: 0, yaw: 0, throttle: 0, boost: false, draft: 0, aimed: false, trick: null };
-    this.model = buildJet(this.look, { lite: !me });
+    this.model = buildJet(this.cfg, { lite: !me, pilotName: name });
     scene.add(this.model.group);
-    this.smoke = new SkySmoke(scene, this.look.smoke);
+    this.smoke = new SkySmoke(scene, this.cfg.smoke);
     this.prevPos = new V3(); this.prevQ = new Quat();
     // pose para dibujar (la propia interpolada o la recibida por la red)
     // los de la red no se ven hasta que llega su primer estado (o se les coloca en la parrilla)
@@ -98,6 +96,7 @@ export class Racer {
 
   dispose() {
     this.scene.remove(this.model.group);
+    this.model.dispose?.();
     this.scene.remove(this.smoke.mesh);
     this.voice?.dispose();
   }

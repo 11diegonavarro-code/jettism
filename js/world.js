@@ -193,7 +193,7 @@ export function createWorld(renderer, qualityName) {
   scene.add(ground);
 
   // Lago espejo: reflejo real del mundo en Ultra y Altos; en Rendimiento refleja solo el cielo
-  const waves = waveNormals();
+  const waves = waveNormals(), mirrorHooks = {};
   let lake, water = null;
   if (Q.mirror) {
     water = new Water(new THREE.CircleGeometry(LAKE.r, 96), {
@@ -201,6 +201,9 @@ export function createWorld(renderer, qualityName) {
       waterColor: 0x0a1c2c, distortionScale: 0.7, fog: true, alpha: 1,
     });
     water.material.uniforms.size.value = 0.5;
+    // el reflejo vuelve a dibujar la escena: antes, el juego puede esconder lo que no merece la pena reflejar
+    const orig = water.onBeforeRender;
+    water.onBeforeRender = (...args) => { mirrorHooks.before?.(); orig.apply(water, args); mirrorHooks.after?.(); };
     lake = water;
   } else {
     waves.repeat.set(36, 36);
@@ -261,7 +264,7 @@ export function createWorld(renderer, qualityName) {
   const atm = { night: 0, pink: 0 };
   const tmpC = new THREE.Color();
   return {
-    scene, camera, quality: Q, sun, resize, atm, lightDir,
+    scene, camera, quality: Q, sun, resize, atm, lightDir, mirrorHooks,
     render() { composer ? composer.render() : renderer.render(scene, camera); },
     setPixelRatio(pr) { renderer.setPixelRatio(pr); resize(); },
     setBlur(k) { if (finalPass && Q.blur) finalPass.uniforms.uBlur.value = k; },

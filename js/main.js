@@ -14,7 +14,9 @@ import { Sound, RemoteVoice } from './audio.js';
 import { Input } from './input.js';
 import { HUD, fmtTime } from './hud.js';
 import { Net } from './net.js';
-import { Racer, COLORS, BOT_NAMES, DIFFICULTY } from './racers.js';
+import { Racer, COLORS, BOT_NAMES } from './racers.js';
+import { Hangar, HangarUI } from './hangar.js';
+import { defaultCfg, randomCfg, sanitizeCfg } from './hangar-data.js';
 import { V3, clamp, damp } from './math.js';
 
 const $ = id => document.getElementById(id);
@@ -42,6 +44,9 @@ const settings = {
   name: cleanName(store.get('jt-name', 'Piloto' + Math.floor(Math.random() * 90 + 10))),
   color: COLORS.includes(store.get('jt-color', '')) ? store.get('jt-color', '') : COLORS[0],
 };
+// Configuración del jet (hangar): se guarda en el navegador y se envía a la sala
+settings.cfg = (() => { try { const s = store.get('jt-cfg', ''); return s ? sanitizeCfg(JSON.parse(s)) : defaultCfg(settings.color); } catch { return defaultCfg(settings.color); } })();
+const saveCfg = () => store.set('jt-cfg', JSON.stringify(settings.cfg));
 
 // ---------- Motor ----------
 const renderer = new THREE.WebGLRenderer({ antialias: settings.quality === 'baja', powerPreference: 'high-performance' });
@@ -66,9 +71,26 @@ const net = new Net();
 addEventListener('resize', () => { world.resize(); fx.setPointScale(renderer, camera); });
 fx.setPointScale(renderer, camera);
 
-const ghostModel = buildJet(undefined, { ghost: true });
-ghostModel.group.visible = false;
-scene.add(ghostModel.group);
+let ghostModel = null;
+function rebuildGhost() {
+  if (ghostModel) { scene.remove(ghostModel.group); ghostModel.dispose(); }
+  ghostModel = buildJet(settings.cfg, { ghost: true });
+  ghostModel.group.visible = false;
+  scene.add(ghostModel.group);
+}
+rebuildGhost();
+const hangar = new Hangar(renderer, scene.environment);
+const hangarUI = new HangarUI(hangar, {
+  onDone(cfg) {
+    settings.cfg = cfg; saveCfg();
+    settings.color = cfg.paint.c1; store.set('jt-color', settings.color);
+    hangar.active = false;
+    rebuildGhost(); renderColors();
+    toMenu();
+  },
+});
+addEventListener('resize', () => hangar.resize());
+hangar.resize();
 
 // ---------- Estado ----------
 const game = {
@@ -100,9 +122,10 @@ function clearRacers(keepMe = false) {
   racers = keepMe && me ? [me] : [];
 }
 function newMe(laps = 3) {
-  const r = new Racer(scene, track, { id: myId(), name: settings.name, color: settings.color, owned: true, me: true, laps });
+  const r = new Racer(scene, track, { id: myId(), name: settings.name, cfg: settings.cfg, owned: true, me: true, laps });
   racers.push(r);
   setMe(r);
+  sound.setEngine(settings.cfg.engine);
   return r;
 }
 
@@ -205,7 +228,7 @@ function toMenu(msg = '') {
   const s = track.gates[1].s + 200;
   me.place(S.pointAt(s), S.tangentAt(s), 90, 2);
   for (let k = 0; k < 3; k++) {
-    const b = new Racer(scene, track, { id: 'D' + k, name: BOT_NAMES[k], color: COLORS[(k + 1) % COLORS.length], bot: true, owned: true, laps: Infinity });
+    const b = new Racer(scene, track, { id: 'D' + k, name: BOT_NAMES[k], cfg: randomCfg(), bot: true, owned: true, laps: Infinity });
     const sb = s + 120 + k * 260;
     b.place(S.pointAt(sb), S.tangentAt(sb), 90, 2);
     racers.push(b);
@@ -238,15 +261,11 @@ function respawn() {
 }
 
 // ---------- Sala y carreras con varios jets ----------
-function lobbyPlayerColor(want) {
-  const used = new Set(lobby.players.map(p => p.color));
-  return COLORS.includes(want) && !used.has(want) ? want : COLORS.find(c => !used.has(c)) || COLORS[0];
-}
 // Carrera contra bots (sin red): la «sala» es solo la ventana de ajustes
 function openBotsLobby() {
   sound.init();
   net.close();
-  lobby = { players: [{ pid: 'me', name: settings.name, color: settings.color }], bots: lobby.bots || 5, laps: lobby.laps || 3, diff: lobby.diff || 'normal', racing: false };
+  lobby = { players: [{ pid: 'me', name: settings.name, cfg: settings.cfg }], bots: lobby.bots || 5, laps: lobby.laps || 3, diff: lobby.diff || 'normal', racing: false };
   backTo = 'menu';
   showOverlay('lobby');
   renderLobby();
@@ -256,7 +275,7 @@ async function hostRoom() {
   $('menuMsg').textContent = 'Creando sala…';
   try {
     await net.createRoom();
-    lobby = { players: [{ pid: 'H', name: settings.name, color: settings.color }], bots: 3, laps: 3, diff: 'normal', racing: false };
+    lobby = { players: [{ pid: 'H', name: settings.name, cfg: settings.cfg }], bots: 3, laps: 3, diff: 'normal', racing: false };
     history.replaceState(null, '', `#${net.code}`);
     enterLobby();
   } catch (e) { $('menuMsg').textContent = 'No se pudo crear la sala: ' + (e.message || e); }
@@ -265,7 +284,7 @@ async function join(code) {
   sound.init();
   $('menuMsg').textContent = 'Conectando… (puede tardar unos segundos)';
   try {
-    await net.joinRoom(code, { name: settings.name, color: settings.color });
+    await net.joinRoom(code, { name: settings.name, cfg: settings.cfg });
     $('menuMsg').textContent = '';
     toast(net.via === 'directa' ? 'Conectado' : 'Conectado (vía servidor)');
     lobby = { players: [], bots: 0, laps: 3, diff: 'normal', racing: false };
@@ -295,11 +314,9 @@ function syncLobbyRacers() {
   if (game.mode !== 'lobby') return;
   for (const p of lobby.players) {
     if (p.pid === myId() || racers.some(r => r.id === p.pid)) continue;
-    racers.push(new Racer(scene, track, { id: p.pid, name: p.name, color: p.color, laps: Infinity }));
+    racers.push(new Racer(scene, track, { id: p.pid, name: p.name, cfg: p.cfg, laps: Infinity }));
   }
   for (const r of [...racers]) if (r !== me && !lobby.players.some(p => p.pid === r.id)) { r.dispose(); racers.splice(racers.indexOf(r), 1); }
-  const mine = lobby.players.find(p => p.pid === myId());
-  if (mine && mine.color !== me.color) { me.color = mine.color; me.smoke.setColor(mine.color); }
 }
 function broadcastLobby() {
   lobby.racing = game.mode === 'race';
@@ -314,7 +331,7 @@ function renderLobby() {
   ul.innerHTML = '';
   for (const p of L.players) {
     const li = document.createElement('li'), dot = document.createElement('span');
-    dot.className = 'dot'; dot.style.background = p.color;
+    dot.className = 'dot'; dot.style.background = sanitizeCfg(p.cfg).paint.c1;
     li.append(dot, document.createTextNode(p.name + (online && p.pid === 'H' ? ' (anfitrión)' : '') + (p.pid === myId() ? ' — tú' : '')));
     ul.appendChild(li);
   }
@@ -331,16 +348,14 @@ function renderLobby() {
 }
 // El anfitrión (o el jugador solo) reparte la parrilla y da la salida
 function startRace() {
-  const humans = net.online ? lobby.players : [{ pid: 'me', name: settings.name, color: settings.color }];
-  const used = new Set(humans.map(p => p.color));
-  const bots = Array.from({ length: Math.min(lobby.bots, MAX_JETS - humans.length) }, (_, k) => {
-    const color = COLORS.find(c => !used.has(c)) || COLORS[k % COLORS.length];
-    used.add(color);
-    return { id: 'B' + k, name: BOT_NAMES[(k + Math.floor(Math.random() * BOT_NAMES.length)) % BOT_NAMES.length], color, bot: true };
-  });
+  const humans = net.online ? lobby.players : [{ pid: 'me', name: settings.name, cfg: settings.cfg }];
+  // los bots salen con jets al azar (el anfitrión los elige y los manda, para que todos los vean igual)
+  const bots = Array.from({ length: Math.min(lobby.bots, MAX_JETS - humans.length) }, (_, k) => (
+    { id: 'B' + k, name: BOT_NAMES[(k + Math.floor(Math.random() * BOT_NAMES.length)) % BOT_NAMES.length], cfg: randomCfg(), bot: true }
+  ));
   const names = new Set();
   for (const b of bots) { while (names.has(b.name)) b.name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]; names.add(b.name); }
-  const all = [...humans.map(p => ({ id: p.pid, name: p.name, color: p.color, bot: false })), ...bots];
+  const all = [...humans.map(p => ({ id: p.pid, name: p.name, cfg: p.cfg, bot: false })), ...bots];
   const slots = all.map((_, i) => i).sort(() => Math.random() - 0.5);
   const msg = { t: 'start', go: net.hostNow() + 4200, laps: lobby.laps, diff: lobby.diff, grid: all.map((p, i) => ({ ...p, slot: slots[i] })) };
   if (net.online) net.send(msg);
@@ -353,13 +368,14 @@ function beginRace(m) {
   const hostSide = !net.online || net.host;
   for (const g of m.grid) {
     const mine = g.id === myId();
-    const r = new Racer(scene, track, { id: g.id, name: g.name, color: g.color, bot: g.bot, owned: mine || (g.bot && hostSide), me: mine, laps: m.laps, diff: m.diff });
+    const r = new Racer(scene, track, { id: g.id, name: g.name, cfg: mine ? settings.cfg : g.cfg, bot: g.bot, owned: mine || (g.bot && hostSide), me: mine, laps: m.laps, diff: m.diff });
     r.slot = g.slot;
     r.place(slotPos(g.slot), new V3(0, 0, -1), 0, 99);
     racers.push(r);
     if (mine) setMe(r);
   }
   if (!me) { newMe(m.laps); me.place(slotPos(7), new V3(0, 0, -1), 0, 99); }
+  precompile();
   game.mode = 'race'; game.phase = 'countdown'; game.paused = false; game.autopilot = DEBUG && params.has('auto');
   game.laps = m.laps; game.go = m.go;
   resetRun();
@@ -368,7 +384,21 @@ function beginRace(m) {
   showOverlay(null); hud.show(true); cam.cut = true;
   lockIfNeeded();
 }
+// Compila los materiales de todos los jets durante la cuenta atrás, para que no haya tirones cuando aparecen en pantalla
+function precompile() {
+  for (const r of racers) r.model.group.visible = true;
+  try { renderer.compileAsync ? renderer.compileAsync(scene, camera).catch(() => {}) : renderer.compile(scene, camera); } catch { /* no pasa nada */ }
+}
 function racerById(id) { return racers.find(r => r.id === id); }
+// En el reflejo del lago solo salen los jets cercanos (cada jet reflejado es otra pasada de dibujo)
+const mirrorHidden = [];
+world.mirrorHooks.before = () => {
+  for (const r of racers) {
+    const g = r.model.group;
+    if (r !== me && g.visible && r.view.p.distanceTo(camera.position) > 350) { g.visible = false; mirrorHidden.push(g); }
+  }
+};
+world.mirrorHooks.after = () => { for (const g of mirrorHidden) g.visible = true; mirrorHidden.length = 0; };
 function standings() { return [...racers].sort((a, b) => b.progress(track.length) - a.progress(track.length)); }
 
 // Un jet propio (el mío o un bot del anfitrión) ha terminado
@@ -417,7 +447,7 @@ function showRaceResults() {
 net.on('join', m => {
   if (!net.host) return;
   if (lobby.players.length >= MAX_JETS) return;
-  const p = { pid: m.from, name: cleanName(m.name), color: lobbyPlayerColor(m.color) };
+  const p = { pid: m.from, name: cleanName(m.name), cfg: sanitizeCfg(m.cfg) };
   lobby.players.push(p);
   toast(`${p.name} se ha unido`);
   syncLobbyRacers();
@@ -449,7 +479,7 @@ net.on('ev', m => {
   if (!r || r.owned) return;
   if (m.k === 'crash') {
     fx.explosion(m.p, m.v);
-    fx.eject(m.p, m.v, r.look);
+    fx.eject(m.p, m.v, r.cfg);
     if (r.view.p.distanceTo(camera.position) < 600) sound.sfx('explosion');
   } else if (m.k === 'trick') {
     r.tricks.push({ name: m.name, t: m.t });
@@ -505,6 +535,12 @@ function stepRacer(r, ev, awards) {
     J.step(STEP, r.ctl, track, game.t, ev);
     if (J.alive) r.race.update(J, game.t, ev);
     if (J.alive && !J.trick) r.manual.step(STEP, game.t, J, awards);
+    // puerta saltada: aviso y, al poco, vuelta justo antes de ella
+    if (J.alive && r.race.missed && game.phase === 'race') {
+      r.missT = (r.missT || 0) + STEP;
+      if (isMe && r.missT < STEP * 1.5) { hud.center('¡Te has saltado una puerta!', 'small', 1.5); sound.sfx('trickFail'); }
+      if (r.missT > (isMe ? 1.5 : 0.3)) { r.missT = 0; isMe ? respawn() : respawnRacer(r); }
+    } else r.missT = 0;
     if (isMe && game.mode === 'trial' && game.phase === 'race') ghostRec.sample(game.t - race.lapStart, J);
   } else {
     J.step(STEP, r.ctl, track, game.t, ev);
@@ -550,7 +586,7 @@ function handleBotEvents(r, ev, awards) {
   for (const e of ev) {
     if (e.type === 'crash') {
       fx.explosion(e.p, e.v);
-      fx.eject(e.p, e.v, r.look);
+      fx.eject(e.p, e.v, r.cfg);
       r.style.breakChain(); r.manual.reset();
       if (game.phase !== 'menu' && r.view.p.distanceTo(camera.position) < 600) sound.sfx('explosion');
       if (net.online) net.send({ t: 'ev', k: 'crash', id: r.id, p: e.p, v: e.v });
@@ -573,7 +609,7 @@ function handleEvents(ev, awards) {
     switch (e.type) {
       case 'crash':
         fx.explosion(e.p, e.v);
-        fx.eject(e.p, e.v, me.look);
+        fx.eject(e.p, e.v, me.cfg);
         game.crashAt = new THREE.Vector3(e.p.x, e.p.y, e.p.z);
         style.breakChain(); manual.reset(); combo.state = 'idle'; pendingTrick = null;
         cam.shake = 1.2;
@@ -894,7 +930,7 @@ function updateVoices(dt) {
   const near = on ? racers.filter(r => r !== me && r.view.alive && r.view.p.distanceTo(lisP) < 700).sort((a, b) => a.view.p.distanceTo(lisP) - b.view.p.distanceTo(lisP)).slice(0, 4) : [];
   for (const r of racers) {
     if (near.includes(r)) {
-      if (!r.voice) r.voice = new RemoteVoice(sound);
+      if (!r.voice) r.voice = new RemoteVoice(sound, r.cfg.engine);
       r.voice.update({ p: r.view.p, v: r.view.v }, { p: lisP, v: lisV }, r.view.boost, true);
     } else if (r.voice) { r.voice.dispose(); r.voice = null; }
   }
@@ -952,6 +988,8 @@ function frame(now) {
   last = now;
   adaptResolution(raw);
   st = input.poll();
+  // en el hangar solo se dibuja el estudio con el jet
+  if (game.phase === 'hangar') { hangar.frame(dt); requestAnimationFrame(frame); return; }
 
   // botones generales
   if (st.pause && (playing() || game.phase === 'finished')) togglePause();
@@ -1029,7 +1067,17 @@ function frame(now) {
 }
 
 // ---------- Interfaz ----------
-const OVERLAYS = ['menu', 'settingsPanel', 'controlsPanel', 'pause', 'results', 'lobby'];
+const OVERLAYS = ['menu', 'settingsPanel', 'controlsPanel', 'pause', 'results', 'lobby', 'hangar'];
+function enterHangar() {
+  net.close();
+  game.phase = 'hangar'; game.mode = null;
+  hud.show(false); hud.warn(0);
+  for (const r of racers) { r.voice?.dispose(); r.voice = null; }
+  sound.silence();
+  showOverlay('hangar');
+  hangar.active = true;
+  hangarUI.open(settings.cfg, settings.name);
+}
 let backTo = 'menu';
 function showOverlay(id) {
   for (const o of OVERLAYS) $(o).hidden = o !== id;
@@ -1081,7 +1129,8 @@ function renderColors() {
     b.style.background = c;
     b.setAttribute('aria-label', 'Color ' + c);
     b.onclick = () => {
-      settings.color = c; store.set('jt-color', c); renderColors();
+      settings.color = c; store.set('jt-color', c);
+      settings.cfg.paint.c1 = c; saveCfg(); rebuildGhost(); renderColors();
       if (game.phase === 'menu') toMenu($('menuMsg').textContent); // el jet del fondo cambia de color
     };
     el.appendChild(b);
@@ -1090,6 +1139,7 @@ function renderColors() {
 
 $('btnTrial').onclick = startTrial;
 $('btnFree').onclick = startFree;
+$('btnHangar').onclick = enterHangar;
 $('btnBots').onclick = openBotsLobby;
 $('btnHost').onclick = hostRoom;
 $('btnJoin').onclick = () => join(location.hash.slice(1).toUpperCase());
@@ -1151,7 +1201,7 @@ if (DEBUG) {
     game, track, settings, view, fx, sound, world, renderer, cam, aim, rec, net, combo, clouds, atm, THREE, scene, camera, input, hud,
     get jet() { return jet; }, get race() { return race; }, get style() { return style; }, get me() { return me; }, get racers() { return racers; },
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
-    startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings,
+    startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },
