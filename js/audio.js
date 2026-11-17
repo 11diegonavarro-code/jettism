@@ -191,6 +191,15 @@ export class Sound {
       case 'finish': [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.35, { type: 'triangle', vol: 0.15, delay: i * 0.11 })); break;
       case 'record': [1047, 1319, 1568, 2093].forEach((f, i) => this.tone(f, 0.3, { type: 'sine', vol: 0.14, delay: 0.5 + i * 0.09 })); break;
       case 'launch': this.noise(1.2, { vol: 0.9, f: 300, to: 1800, buf: 'brown' }); break;
+      case 'pickup': [880, 1175, 1568].forEach((f, i) => this.tone(f, 0.12, { type: 'triangle', vol: 0.12, delay: i * 0.05 })); break;
+      case 'missile': this.noise(0.9, { vol: 0.7, type: 'bandpass', f: 600, to: 2600, q: 0.8 }); this.tone(220, 0.5, { type: 'sawtooth', vol: 0.06, to: 660 }); break;
+      case 'mine': this.tone(180, 0.25, { type: 'square', vol: 0.12, to: 90 }); this.tone(1200, 0.08, { vol: 0.08, delay: 0.2 }); break;
+      case 'shield': [523, 784, 1047].forEach((f, i) => this.tone(f, 0.35, { vol: 0.12, delay: i * 0.06 })); break;
+      case 'shieldPop': this.noise(0.4, { vol: 0.5, type: 'bandpass', f: 1800, to: 400, q: 1.2 }); this.tone(880, 0.3, { vol: 0.12, to: 220 }); break;
+      case 'flares': for (let i = 0; i < 6; i++) this.noise(0.18, { vol: 0.35, type: 'bandpass', f: 2400 + i * 300, q: 2, delay: i * 0.05 }); break;
+      case 'lock': this.tone(1760, 0.08, { type: 'square', vol: 0.07 }); this.tone(2093, 0.12, { type: 'square', vol: 0.07, delay: 0.09 }); break;
+      case 'alarm': this.tone(1400, 0.09, { type: 'square', vol: 0.09 }); this.tone(1050, 0.09, { type: 'square', vol: 0.09, delay: 0.1 }); break;
+      case 'kill': [659, 880, 1319].forEach((f, i) => this.tone(f, 0.18, { type: 'triangle', vol: 0.14, delay: i * 0.07 })); break;
     }
   }
 }

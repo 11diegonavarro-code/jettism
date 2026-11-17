@@ -75,7 +75,7 @@ class Trail {
       vertexShader: `attribute float alpha; varying float vA;
         void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = alpha * smoothstep(9.0, 30.0, -mv.z); gl_Position = projectionMatrix * mv; }`,
       fragmentShader: 'varying float vA; void main() { gl_FragColor = vec4(vec3(1.0, 0.97, 0.94) * 1.1, vA); }',
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
     });
     this.mesh = new THREE.Mesh(g, mat);
     this.mesh.frustumCulled = false;
@@ -127,7 +127,7 @@ export class SkySmoke {
       vertexShader: `attribute float alpha; varying float vA;
         void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = alpha * smoothstep(4.0, 22.0, -mv.z); gl_Position = projectionMatrix * mv; }`,
       fragmentShader: 'uniform vec3 uColor; varying float vA; void main() { gl_FragColor = vec4(uColor, vA); }',
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
     });
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
@@ -203,7 +203,7 @@ export class FX {
           float n = 0.75 + 0.25 * sin(vUv.x * 60.0 + uTime * 7.0);
           gl_FragColor = vec4(vec3(1.0), edge * ring * n * (1.0 - uLife) * 0.55);
         }`,
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, fog: false,
     });
     this.cone = new THREE.Mesh(cone, this.coneMat);
     this.cone.visible = false;

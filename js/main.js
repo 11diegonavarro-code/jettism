@@ -16,6 +16,8 @@ import { HUD, fmtTime } from './hud.js';
 import { Net } from './net.js';
 import { Racer, COLORS, BOT_NAMES } from './racers.js';
 import { Hangar, HangarUI } from './hangar.js';
+import { Items, ITEMS } from './items.js';
+import { ReplayRecorder, ReplayPlayer, REPLAY_CAMS, CAM_LABEL } from './replay.js';
 import { defaultCfg, randomCfg, sanitizeCfg } from './hangar-data.js';
 import { V3, clamp, damp } from './math.js';
 
@@ -29,6 +31,8 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
 };
 const touchDevice = matchMedia('(pointer: coarse)').matches;
+// para meter nombres en HTML sin riesgo
+const esc = t => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const cleanName = n => String(n || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 14) || 'Piloto';
 
 // ---------- Ajustes ----------
@@ -68,6 +72,15 @@ sound.volume = settings.volume;
 const input = new Input(renderer.domElement, settings);
 const hud = new HUD();
 const net = new Net();
+// Objetos (misiles, minas, escudo y bengalas): cada pantalla decide sobre sus propios jets
+const items = new Items(scene, track, fx, sound, {
+  racers: () => racers,
+  byId: id => racerById(id),
+  owned: r => r.owned,
+  send: m => { if (net.online) net.send(m); },
+  onHit: (r, cause, by) => itemHit(r, cause, by),
+  onShield: r => { if (r === me) { hud.feed('¡EL ESCUDO TE HA SALVADO!', 'near'); sound.sfx('shieldPop'); } },
+});
 addEventListener('resize', () => { world.resize(); fx.setPointScale(renderer, camera); });
 fx.setPointScale(renderer, camera);
 
@@ -111,6 +124,7 @@ const rec = {
   lap: +store.get(`jt-${MAP}-lap`, 0) || null,
   total: +store.get(`jt-${MAP}-total`, 0) || null,
   style: +store.get(`jt-${MAP}-style`, 0) || 0,
+  acro: +store.get(`jt-${MAP}-acro`, 0) || 0,
 };
 const playing = () => ['countdown', 'race', 'free', 'lobby'].includes(game.phase);
 const multi = () => game.mode === 'race' || game.mode === 'lobby';
@@ -164,6 +178,13 @@ function soloRacers(laps) {
   net.close();
   clearRacers();
   newMe(laps);
+  resetModes();
+}
+// Vuelve a lo normal: sin modo especial, sin objetos, sin noche forzada y en el sentido normal
+function resetModes() {
+  game.rules = null; game.forceNight = false; meAp.dir = 1;
+  items.enable(false);
+  touchItems();
 }
 function startTrial() {
   sound.init();
@@ -177,9 +198,11 @@ function startTrial() {
   showOverlay(null); hud.show(true); cam.cut = true;
   lockIfNeeded();
 }
-function launchRacer(r, pos) {
-  const p = 0.12;
-  r.jet.spawn(pos.clone().add(new V3(0, 0.3, 0)), new V3(0, Math.sin(p), -Math.cos(p)), 72, 1);
+// Salida: desde la plataforma (un poco hacia arriba) o, al revés y en combate, desde el aire
+function launchRacer(r) {
+  const S = r.start || { pos: PLATFORM, fwd: new V3(0, 0, -1), air: false }, p = 0.12;
+  const pos = S.air ? S.pos.clone() : S.pos.clone().add(new V3(0, 0.3, 0)), fwd = S.air ? S.fwd.clone() : new V3(0, Math.sin(p), -Math.cos(p));
+  r.jet.spawn(pos, fwd, 72, rules().kind === 'combate' ? 3 : 1);
   r.jet.turbo = 30;
   r.race.reset(0); r.race.teleport(r.jet.pos);
   r.prevPos.copy(r.jet.pos); r.prevQ.copy(r.jet.q);
@@ -187,7 +210,8 @@ function launchRacer(r, pos) {
 }
 function launch() {
   game.phase = 'race';
-  for (const r of racers) if (r.owned) launchRacer(r, r.slot != null ? slotPos(r.slot) : PLATFORM);
+  for (const r of racers) if (r.owned) launchRacer(r);
+  recorder.reset(racers);
   syncAim();
   sound.sfx('launch'); sound.sfx('beep', 1);
   hud.center('¡YA!', '', 0.8);
@@ -217,6 +241,7 @@ function toMenu(msg = '') {
   net.close();
   clearRacers();
   newMe(Infinity);
+  resetModes();
   game.phase = 'menu'; game.mode = null; game.paused = false; game.autopilot = true;
   hud.show(false); ghostModel.group.visible = false; hud.warn(0);
   showOverlay('menu');
@@ -239,12 +264,18 @@ function toMenu(msg = '') {
 }
 function restart() {
   if (game.mode === 'free') startFree();
-  else if (game.mode === 'race' && !net.online) startRace();
+  else if (game.mode === 'race' && !net.online) startRace(null);
   else startTrial();
 }
 
 function respawnRacer(r) {
-  const p = r.race.respawnPoint();
+  let p = r.race.respawnPoint();
+  // en combate se reaparece en cualquier punto del mapa, con 3 s de escudo
+  if (game.mode === 'race' && rules().kind === 'combate') {
+    const g = track.gates[Math.floor(Math.random() * track.gates.length)], S = track.spline;
+    p = { pos: S.pointAt(g.s + 30), fwd: S.tangentAt(g.s + 30) };
+    r.shieldT = 3;
+  }
   r.jet.spawn(p.pos, p.fwd, 72, 1.5);
   r.jet.turbo = Math.max(r.jet.turbo, 15);
   r.race.teleport(r.jet.pos);
@@ -261,11 +292,24 @@ function respawn() {
 }
 
 // ---------- Sala y carreras con varios jets ----------
+const MODES = {
+  carrera: { label: 'Carrera', info: 'Carrera normal: turbo, rebufo y piruetas.' },
+  objetos: { label: 'Carrera con objetos', info: 'Recoge objetos en los anillos morados: misil, escudo, mina y bengalas. Los que van detrás reciben mejores objetos.' },
+  copa: { label: 'Copa', info: 'Tres carreras seguidas: normal, al revés y de noche. Puntos por puesto (10, 8, 6, 5, 4, 3, 2, 1) y +3/+2/+1 a los tres con más estilo de cada carrera.' },
+  combate: { label: 'Combate aéreo', info: 'Todos contra todos por el mapa. Tienes misiles que se recargan: fija a un rival delante de ti y dispara. Gana quien más derribe.' },
+  acro: { label: 'Acrobacias', info: 'Vuela libre por el mapa y encadena piruetas. Gana quien más puntos de estilo consiga.' },
+};
+const CUP_PTS = [10, 8, 6, 5, 4, 3, 2, 1];
+const ACRO_TRICKS = ['tonel', 'derrape', 'looping', 'campana', 'immelmann', 'splitS', 'barrena', 'cobra'];
+const newLobby = (players, bots) => ({ players, bots, laps: lobby.laps || 3, diff: lobby.diff || 'normal', mode: lobby.mode || 'carrera', time: lobby.time || 180, racing: false });
+const rules = () => game.rules || { kind: 'carrera', dir: 1 };
+const timed = () => ['combate', 'acro'].includes(rules().kind);
 // Carrera contra bots (sin red): la «sala» es solo la ventana de ajustes
 function openBotsLobby() {
   sound.init();
   net.close();
-  lobby = { players: [{ pid: 'me', name: settings.name, cfg: settings.cfg }], bots: lobby.bots || 5, laps: lobby.laps || 3, diff: lobby.diff || 'normal', racing: false };
+  lobby = newLobby([{ pid: 'me', name: settings.name, cfg: settings.cfg }], lobby.bots || 5);
+  game.cup = null;
   backTo = 'menu';
   showOverlay('lobby');
   renderLobby();
@@ -275,7 +319,8 @@ async function hostRoom() {
   $('menuMsg').textContent = 'Creando sala…';
   try {
     await net.createRoom();
-    lobby = { players: [{ pid: 'H', name: settings.name, cfg: settings.cfg }], bots: 3, laps: 3, diff: 'normal', racing: false };
+    lobby = newLobby([{ pid: 'H', name: settings.name, cfg: settings.cfg }], 3);
+    game.cup = null;
     history.replaceState(null, '', `#${net.code}`);
     enterLobby();
   } catch (e) { $('menuMsg').textContent = 'No se pudo crear la sala: ' + (e.message || e); }
@@ -287,7 +332,7 @@ async function join(code) {
     await net.joinRoom(code, { name: settings.name, cfg: settings.cfg });
     $('menuMsg').textContent = '';
     toast(net.via === 'directa' ? 'Conectado' : 'Conectado (vía servidor)');
-    lobby = { players: [], bots: 0, laps: 3, diff: 'normal', racing: false };
+    lobby = newLobby([], 0);
     enterLobby();
   } catch (e) { $('menuMsg').textContent = e.message || String(e); }
 }
@@ -295,7 +340,8 @@ async function join(code) {
 function enterLobby() {
   clearRacers();
   newMe(Infinity);
-  game.mode = 'lobby'; game.phase = 'lobby'; game.paused = false; game.autopilot = false;
+  game.mode = 'lobby'; game.phase = 'lobby'; game.paused = false; game.autopilot = false; game.rules = null; game.forceNight = false;
+  items.enable(false);
   resetRun();
   game.t = 0;
   const S = track.spline, s = track.gates[0].s - 200 - Math.random() * 300;
@@ -325,7 +371,7 @@ function broadcastLobby() {
 }
 function renderLobby() {
   const L = lobby, ul = $('players'), online = net.online, hosting = !online || net.host;
-  $('lobbyTitle').textContent = online ? `Sala ${net.code}` : 'Carrera contra bots';
+  $('lobbyTitle').textContent = online ? `Sala ${net.code}` : 'Partida contra bots';
   $('linkBox').hidden = !online;
   if (online) $('link').value = `${location.origin}${location.pathname}#${net.code}`;
   ul.innerHTML = '';
@@ -338,50 +384,92 @@ function renderLobby() {
   const maxBots = MAX_JETS - L.players.length;
   L.bots = Math.min(L.bots, maxBots);
   $('hostOpts').hidden = !hosting;
+  $('mode').value = L.mode || 'carrera';
+  $('modeInfo').textContent = (MODES[L.mode] || MODES.carrera).info;
+  const isTimed = L.mode === 'combate' || L.mode === 'acro';
+  $('lapsRow').hidden = isTimed; $('timeRow').hidden = !isTimed;
   $('bots').max = maxBots; $('bots').value = L.bots; $('botsVal').textContent = L.bots;
   $('laps').value = L.laps; $('lapsVal').textContent = L.laps;
+  $('time').value = String(L.time || 180);
   $('diff').value = L.diff;
+  $('btnStart').textContent = L.mode === 'copa' ? '¡Empezar la copa!' : L.mode === 'combate' ? '¡Empezar el combate!' : L.mode === 'acro' ? '¡Empezar!' : '¡Empezar la carrera!';
   $('waitMsg').hidden = hosting;
-  $('waitMsg').textContent = L.racing ? 'Hay una carrera en marcha: entrarás en la siguiente.' : 'Esperando a que el anfitrión empiece…';
+  $('waitMsg').textContent = L.racing ? 'Hay una partida en marcha: entrarás en la siguiente.' : `Esperando a que el anfitrión empiece · ${(MODES[L.mode] || MODES.carrera).label}`;
   $('btnFly').hidden = !online;
   $('lobbyHint').hidden = !online;
 }
 // El anfitrión (o el jugador solo) reparte la parrilla y da la salida
-function startRace() {
+function startRace(sameGrid = null) {
   const humans = net.online ? lobby.players : [{ pid: 'me', name: settings.name, cfg: settings.cfg }];
-  // los bots salen con jets al azar (el anfitrión los elige y los manda, para que todos los vean igual)
-  const bots = Array.from({ length: Math.min(lobby.bots, MAX_JETS - humans.length) }, (_, k) => (
-    { id: 'B' + k, name: BOT_NAMES[(k + Math.floor(Math.random() * BOT_NAMES.length)) % BOT_NAMES.length], cfg: randomCfg(), bot: true }
-  ));
-  const names = new Set();
-  for (const b of bots) { while (names.has(b.name)) b.name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]; names.add(b.name); }
-  const all = [...humans.map(p => ({ id: p.pid, name: p.name, cfg: p.cfg, bot: false })), ...bots];
+  const kind = lobby.mode || 'carrera';
+  // la copa empieza de cero o pasa a la siguiente carrera
+  if (kind === 'copa' && (!game.cup || game.cup.done || sameGrid === null)) game.cup = { round: 0, pts: {}, done: false };
+  if (kind !== 'copa') game.cup = null;
+  const round = game.cup ? game.cup.round : 0;
+  let all = sameGrid;
+  if (!all) {
+    // los bots salen con jets al azar (el anfitrión los elige y los manda, para que todos los vean igual)
+    const bots = Array.from({ length: Math.min(lobby.bots, MAX_JETS - humans.length) }, (_, k) => (
+      { id: 'B' + k, name: BOT_NAMES[(k + Math.floor(Math.random() * BOT_NAMES.length)) % BOT_NAMES.length], cfg: randomCfg(), bot: true }
+    ));
+    const names = new Set();
+    for (const b of bots) { while (names.has(b.name)) b.name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]; names.add(b.name); }
+    all = [...humans.map(p => ({ id: p.pid, name: p.name, cfg: p.cfg, bot: false })), ...bots];
+  }
   const slots = all.map((_, i) => i).sort(() => Math.random() - 0.5);
-  const msg = { t: 'start', go: net.hostNow() + 4200, laps: lobby.laps, diff: lobby.diff, grid: all.map((p, i) => ({ ...p, slot: slots[i] })) };
+  const R = { kind, laps: timed2(kind) ? Infinity : lobby.laps, time: lobby.time || 180, dir: kind === 'copa' && round === 1 ? -1 : 1, night: kind === 'copa' && round === 2, round };
+  const msg = { t: 'start', go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i] })) };
   if (net.online) net.send(msg);
   beginRace(msg);
   if (net.online) broadcastLobby();
 }
+const timed2 = kind => kind === 'combate' || kind === 'acro';
+// Dónde empieza cada jet según el modo: la plataforma, el aire antes de la meta (al revés) o repartidos (combate)
+function startSpot(R, slot) {
+  const S = track.spline;
+  if (R.kind === 'combate') {
+    const g = track.gates[(slot * 3 + 1) % track.gates.length], s = g.s + 40;
+    return { pos: S.pointAt(s), fwd: S.tangentAt(s), air: true };
+  }
+  if (R.dir < 0) {
+    const s = 260 + Math.floor(slot / 2) * 24, f = S.frame(s);
+    return { pos: f.P.clone().addScaled(f.R, slot % 2 ? 10 : -10), fwd: f.T.clone().scale(-1), air: true };
+  }
+  return { pos: slotPos(slot), fwd: new V3(0, 0, -1), air: false };
+}
 function beginRace(m) {
   sound.init();
   clearRacers();
+  const R = { kind: 'carrera', dir: 1, night: false, round: 0, ...(m.rules || {}) };
+  R.laps = timed2(R.kind) ? Infinity : (R.laps || m.laps || 3);
+  game.rules = R;
+  if (m.cup) game.cup = m.cup;
   const hostSide = !net.online || net.host;
   for (const g of m.grid) {
     const mine = g.id === myId();
-    const r = new Racer(scene, track, { id: g.id, name: g.name, cfg: mine ? settings.cfg : g.cfg, bot: g.bot, owned: mine || (g.bot && hostSide), me: mine, laps: m.laps, diff: m.diff });
+    const r = new Racer(scene, track, { id: g.id, name: g.name, cfg: mine ? settings.cfg : g.cfg, bot: g.bot, owned: mine || (g.bot && hostSide), me: mine, laps: R.laps, diff: m.diff, dir: R.dir });
     r.slot = g.slot;
-    r.place(slotPos(g.slot), new V3(0, 0, -1), 0, 99);
+    r.start = startSpot(R, g.slot);
+    r.place(r.start.pos, r.start.fwd, 0, 99);
+    if (r.ap && R.kind === 'acro') { r.ap.trickPool = ACRO_TRICKS; r.ap.skill = 1; }
+    if (R.kind === 'combate') r.ammo = 2;
     racers.push(r);
     if (mine) setMe(r);
   }
-  if (!me) { newMe(m.laps); me.place(slotPos(7), new V3(0, 0, -1), 0, 99); }
+  if (!me) { newMe(R.laps); me.start = startSpot(R, 7); me.place(me.start.pos, me.start.fwd, 0, 99); }
+  meAp.dir = R.dir;
+  items.clear();
+  items.enable(R.kind === 'objetos' || R.kind === 'combate');
+  touchItems();
   precompile();
   game.mode = 'race'; game.phase = 'countdown'; game.paused = false; game.autopilot = DEBUG && params.has('auto');
-  game.laps = m.laps; game.go = m.go;
+  game.laps = R.laps; game.go = m.go; game.forceNight = !!R.night;
   resetRun();
   game.t = (net.hostNow() - game.go) / 1000;
   syncAim();
   showOverlay(null); hud.show(true); cam.cut = true;
+  const sub = R.kind === 'copa' ? `Copa · carrera ${R.round + 1} de 3${R.dir < 0 ? ' · al revés' : R.night ? ' · de noche' : ''}` : MODES[R.kind]?.label;
+  if (sub) hud.sectionName(sub);
   lockIfNeeded();
 }
 // Compila los materiales de todos los jets durante la cuenta atrás, para que no haya tirones cuando aparecen en pantalla
@@ -399,7 +487,14 @@ world.mirrorHooks.before = () => {
   }
 };
 world.mirrorHooks.after = () => { for (const g of mirrorHidden) g.visible = true; mirrorHidden.length = 0; };
-function standings() { return [...racers].sort((a, b) => b.progress(track.length) - a.progress(track.length)); }
+const styleOf = r => (r.owned ? r.style.total : r.styleTotal || 0);
+// Clasificación según el modo: derribos en combate, estilo en acrobacias y lo recorrido en las carreras
+function standings() {
+  const k = rules().kind;
+  if (game.mode === 'race' && k === 'combate') return [...racers].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  if (game.mode === 'race' && k === 'acro') return [...racers].sort((a, b) => styleOf(b) - styleOf(a));
+  return [...racers].sort((a, b) => b.progress() - a.progress());
+}
 
 // Un jet propio (el mío o un bot del anfitrión) ha terminado
 function finishRacer(r, time) {
@@ -407,40 +502,75 @@ function finishRacer(r, time) {
   if (net.online) net.send({ t: 'ev', k: 'fin', id: r.id, time, best: r.race.best, style: r.style.total });
 }
 function checkRaceEnd() {
-  if (game.mode !== 'race' || game.resultsShown) return;
+  if (game.mode !== 'race' || game.resultsShown || game.phase === 'countdown') return;
+  if (timed()) { if (game.t >= rules().time) { game.phase = 'finished'; game.autopilot = true; sound.sfx('finish'); hud.center('¡TIEMPO!', '', 2.4); showRaceResults(); } return; }
   const fin = racers.filter(r => r.finishTime != null);
   if (!fin.length) return;
   const first = Math.min(...fin.map(r => r.finishTime));
   const done = fin.length === racers.length || (me.finishTime != null && game.t - me.finishTime > 20) || game.t - first > 60;
   if (done) showRaceResults();
 }
+// Puntos de la copa de esta carrera: por puesto y por estilo
+function addCupPoints(order) {
+  const C = game.cup;
+  if (!C || C.scored === C.round) return;
+  C.scored = C.round;
+  order.forEach((r, i) => { C.pts[r.id] = C.pts[r.id] || { name: r.name, bot: r.bot, pts: 0 }; C.pts[r.id].pts += CUP_PTS[i] || 0; });
+  [...racers].sort((a, b) => styleOf(b) - styleOf(a)).slice(0, 3).forEach((r, i) => { C.pts[r.id].pts += [3, 2, 1][i]; });
+  if (C.round >= 2) C.done = true;
+}
 function showRaceResults() {
   game.resultsShown = true;
-  const order = standings();
+  const R = rules(), order = standings();
   const table = $('resTable');
-  table.innerHTML = '<tr><td>#</td><td>Piloto</td><td>Tiempo</td><td>Mejor vuelta</td><td>Estilo</td></tr>';
-  order.forEach((r, i) => {
-    const tr = document.createElement('tr');
-    if (r === me) tr.className = 'me';
-    const best = r.owned ? r.race.best : r.best;
-    const sty = r.owned ? r.style.total : r.styleTotal;
-    for (const text of [`${i + 1}º`, r.name + (r.bot ? ' 🤖' : ''), r.finishTime != null ? fmtTime(r.finishTime) : '—', best ? fmtTime(best) : '—', sty != null ? sty.toLocaleString('es-ES') : '—']) {
-      const td = document.createElement('td'); td.textContent = text; tr.appendChild(td);
-    }
-    table.appendChild(tr);
-  });
+  const row = (cells, cls) => { const tr = document.createElement('tr'); if (cls) tr.className = cls; for (const text of cells) { const td = document.createElement('td'); td.textContent = text; tr.appendChild(td); } table.appendChild(tr); };
+  table.innerHTML = '';
+  if (R.kind === 'combate') {
+    row(['#', 'Piloto', 'Derribos', 'Caídas', '']);
+    order.forEach((r, i) => row([`${i + 1}º`, r.name + (r.bot ? ' 🤖' : ''), String(r.kills), String(r.deaths), ''], r === me ? 'me' : ''));
+  } else if (R.kind === 'acro') {
+    row(['#', 'Piloto', 'Estilo', '', '']);
+    order.forEach((r, i) => row([`${i + 1}º`, r.name + (r.bot ? ' 🤖' : ''), styleOf(r).toLocaleString('es-ES'), '', ''], r === me ? 'me' : ''));
+    if (styleOf(me) > (rec.acro || 0)) { rec.acro = styleOf(me); store.set(`jt-${MAP}-acro`, String(rec.acro)); }
+  } else {
+    row(['#', 'Piloto', 'Tiempo', 'Mejor vuelta', 'Estilo']);
+    order.forEach((r, i) => {
+      const best = r.owned ? r.race.best : r.best;
+      row([`${i + 1}º`, r.name + (r.bot ? ' 🤖' : ''), r.finishTime != null ? fmtTime(r.finishTime) : '—', best ? fmtTime(best) : '—', styleOf(r).toLocaleString('es-ES')], r === me ? 'me' : '');
+    });
+  }
   const pos = order.indexOf(me) + 1;
   $('resTitle').textContent = pos === 1 ? '¡Has ganado!' : `Has quedado ${pos}º de ${order.length}`;
   $('resBody').innerHTML = '';
+  // copa: tabla acumulada
+  if (R.kind === 'copa' && game.cup) {
+    if (!net.online || net.host) { addCupPoints(order); if (net.online) net.send({ t: 'cup', cup: game.cup }); }
+    renderCup();
+  }
   const btns = $('resBtns');
   btns.innerHTML = '';
   const add = (text, fn, primary) => { const b = document.createElement('button'); b.textContent = text; if (primary) b.className = 'primary'; b.onclick = fn; btns.appendChild(b); };
-  if (!net.online) { add('Otra carrera', startRace, true); add('Cambiar bots', openBotsLobby); add('Menú', () => toMenu()); }
-  else if (net.host) { add('Volver a la sala', () => { net.send({ t: 'tolobby' }); enterLobby(); }, true); add('Cerrar la sala', () => toMenu()); }
-  else { add('Salir de la sala', () => toMenu()); }
-  $('resWait').textContent = net.online && !net.host ? 'Esperando a que el anfitrión vuelva a la sala…' : '';
+  const again = () => startRace(R.kind === 'copa' && game.cup && !game.cup.done ? racers.map(r => ({ id: r.id, name: r.name, cfg: r.cfg, bot: r.bot })) : null);
+  const nextLabel = R.kind === 'copa' && game.cup && !game.cup.done ? `Carrera ${game.cup.round + 2} de 3` : R.kind === 'copa' ? 'Otra copa' : 'Otra vez';
+  const advance = () => { if (R.kind === 'copa' && game.cup && !game.cup.done) game.cup.round++; again(); };
+  add('Ver repetición', () => startReplay(), false);
+  if (!net.online) { add(nextLabel, advance, true); add('Cambiar', openBotsLobby); add('Menú', () => toMenu()); }
+  else if (net.host) {
+    if (R.kind === 'copa' && game.cup && !game.cup.done) add(nextLabel, advance, true);
+    add('Volver a la sala', () => { net.send({ t: 'tolobby' }); enterLobby(); }, !(R.kind === 'copa' && game.cup && !game.cup.done));
+    add('Cerrar la sala', () => toMenu());
+  } else add('Salir de la sala', () => toMenu());
+  $('resWait').textContent = net.online && !net.host ? 'Esperando al anfitrión…' : '';
   input.exitLock();
   showOverlay('results');
+}
+function renderCup() {
+  const C = game.cup;
+  if (!C) return;
+  const list = Object.entries(C.pts).sort((a, b) => b[1].pts - a[1].pts);
+  $('resBody').innerHTML = `<h3>${C.done ? '🏆 Clasificación final de la copa' : `Copa · después de la carrera ${C.round + 1} de 3`}</h3>` +
+    `<table class="combos results">${list.map(([id, p], i) => `<tr class="${id === me.id ? 'me' : ''}"><td>${i + 1}º</td><td>${esc(p.name)}${p.bot ? ' 🤖' : ''}</td><td>${p.pts} puntos</td></tr>`).join('')}</table>` +
+    (C.done ? `<p class="msg">¡${esc(list[0][1].name)} gana la copa!</p>` : '');
 }
 
 // ---------- Red ----------
@@ -474,12 +604,17 @@ net.on('st', m => {
     if (r && !r.owned) r.receive(e, now);
   }
 });
+const ITEM_EVENTS = ['mfire', 'mine', 'mhit', 'minehit', 'mlost', 'flares'];
 net.on('ev', m => {
+  if (ITEM_EVENTS.includes(m.k)) { if (items.on && !(m.k === 'flares' && racerById(m.id)?.owned)) items.onNet(m); return; }
   const r = racerById(m.id);
   if (!r || r.owned) return;
   if (m.k === 'crash') {
+    if (game.phase === 'replay') return;
     fx.explosion(m.p, m.v);
     fx.eject(m.p, m.v, r.cfg);
+    recorder.event({ k: 'boom', id: r.id, p: m.p, v: m.v });
+    creditCrash(r, m.by);
     if (r.view.p.distanceTo(camera.position) < 600) sound.sfx('explosion');
   } else if (m.k === 'trick') {
     r.tricks.push({ name: m.name, t: m.t });
@@ -489,6 +624,7 @@ net.on('ev', m => {
     if (game.mode === 'race') hud.feed(`${r.name} ha llegado a la meta`, 'info');
   }
 });
+net.on('cup', m => { if (!net.host) { game.cup = m.cup; if (!$('results').hidden) renderCup(); } });
 net.on('hostgone', () => toMenu('El anfitrión ha cerrado la sala.'));
 function sendState() {
   const rs = racers.filter(r => r.owned).map(r => r.pack());
@@ -525,7 +661,7 @@ function stepRacer(r, ev, awards) {
   const J = r.jet, isMe = r === me;
   r.prevPos.copy(J.pos); r.prevQ.copy(J.q);
   if (J.alive) {
-    if (isMe) buildControls(); else r.ap.control(J, STEP, r.ctl, game.clock);
+    if (isMe) buildControls(); else botControl(r);
     const want = isMe ? (ctl.trick || pendingTrick) : r.ctl.trick;
     if (want) {
       const ok = J.startTrick(want.name, want.side, game.t);
@@ -536,7 +672,13 @@ function stepRacer(r, ev, awards) {
     if (J.alive) r.race.update(J, game.t, ev);
     if (J.alive && !J.trick) r.manual.step(STEP, game.t, J, awards);
     // puerta saltada: aviso y, al poco, vuelta justo antes de ella
-    if (J.alive && r.race.missed && game.phase === 'race') {
+    if (J.alive && items.on && game.phase === 'race') {
+      const got = items.pickup(r, r.prevPos, () => placeFrac(r), isCombat());
+      if (got && isMe) { sound.sfx('pickup'); hud.feed(`${ITEMS[got].icon} ${ITEMS[got].label.toUpperCase()}`, 'near'); }
+      if (!isMe) botItems(r, STEP);
+      if (isCombat()) reload(r, STEP);
+    }
+    if (J.alive && r.race.missed && game.phase === 'race' && !timed()) {
       r.missT = (r.missT || 0) + STEP;
       if (isMe && r.missT < STEP * 1.5) { hud.center('¡Te has saltado una puerta!', 'small', 1.5); sound.sfx('trickFail'); }
       if (r.missT > (isMe ? 1.5 : 0.3)) { r.missT = 0; isMe ? respawn() : respawnRacer(r); }
@@ -549,6 +691,7 @@ function stepRacer(r, ev, awards) {
 }
 // Guarda y anuncia una pirueta (para las formaciones)
 function noteTrick(r, name) {
+  if (name === 'cobra' && items.on && r.owned) items.evade(r, 'cobra');
   r.tricks.push({ name, t: game.clock });
   if (r.tricks.length > 6) r.tricks.shift();
   if (net.online) net.send({ t: 'ev', k: 'trick', id: r.id, name, t: game.clock });
@@ -589,9 +732,11 @@ function handleBotEvents(r, ev, awards) {
       fx.eject(e.p, e.v, r.cfg);
       r.style.breakChain(); r.manual.reset();
       if (game.phase !== 'menu' && r.view.p.distanceTo(camera.position) < 600) sound.sfx('explosion');
-      if (net.online) net.send({ t: 'ev', k: 'crash', id: r.id, p: e.p, v: e.v });
+      if (net.online) net.send({ t: 'ev', k: 'crash', id: r.id, p: e.p, v: e.v, by: e.by });
+      recorder.event({ k: 'boom', id: r.id, p: e.p, v: e.v });
+      creditCrash(r, e.by);
     } else if (e.type === 'scrape') fx.sparks(e.p);
-    else if (e.type === 'near') r.jet.turbo = Math.min(100, r.jet.turbo + 8);
+    else if (e.type === 'near') { r.jet.turbo = Math.min(100, r.jet.turbo + 8); if (items.on) items.evade(r, 'near'); }
     else if (e.type === 'trickEnd') awards.push({ name: e.name, start: e.start });
     else if (e.type === 'boostRing') { r.jet.turbo = Math.min(100, r.jet.turbo + 30); r.jet.vel.addScaled(r.jet.fwd, 12); }
     else if (e.type === 'gate' && e.ring) r.jet.turbo = Math.min(100, r.jet.turbo + 5);
@@ -613,8 +758,10 @@ function handleEvents(ev, awards) {
         game.crashAt = new THREE.Vector3(e.p.x, e.p.y, e.p.z);
         style.breakChain(); manual.reset(); combo.state = 'idle'; pendingTrick = null;
         cam.shake = 1.2;
-        if (net.online) net.send({ t: 'ev', k: 'crash', id: me.id, p: e.p, v: e.v });
-        if (!menu) { sound.sfx('explosion'); sound.sfx('chute'); hud.center('¡BOOM!', 'small', 1.4); }
+        if (net.online) net.send({ t: 'ev', k: 'crash', id: me.id, p: e.p, v: e.v, by: e.by });
+        recorder.event({ k: 'boom', id: me.id, p: e.p, v: e.v });
+        creditCrash(me, e.by);
+        if (!menu) { sound.sfx('explosion'); sound.sfx('chute'); hud.center(e.by && e.by !== me.id ? '¡DERRIBADO!' : '¡BOOM!', 'small', 1.4); }
         break;
       case 'scrape':
         fx.sparks(e.p); fx.puff(e.p); cam.shake = Math.max(cam.shake, 0.5);
@@ -624,6 +771,7 @@ function handleEvents(ev, awards) {
         const gain = Math.round(5 + 10 * (1 - e.dist / 6));
         jet.turbo = Math.min(100, jet.turbo + gain);
         style.bonus(25);
+        if (items.on) items.evade(me, 'near');
         cam.shake = Math.max(cam.shake, 0.15);
         if (!menu) { hud.feed(`¡ROCE! +${gain} TURBO`, 'near'); sound.sfx('near'); }
         break;
@@ -705,14 +853,17 @@ function onFinish(e) {
     <p class="hint">Récords: vuelta ${fmtTime(rec.lap)} · carrera ${fmtTime(rec.total)} · estilo ${rec.style.toLocaleString('es-ES')}. El fantasma cian es tu mejor vuelta.</p>`;
   const btns = $('resBtns');
   btns.innerHTML = '';
-  for (const [text, fn, primary] of [['Repetir', startTrial, true], ['Menú', () => toMenu()]]) {
+  for (const [text, fn, primary] of [['Repetir', startTrial, true], ['Ver repetición', () => startReplay()], ['Menú', () => toMenu()]]) {
     const b = document.createElement('button'); b.textContent = text; if (primary) b.className = 'primary'; b.onclick = fn; btns.appendChild(b);
   }
   input.exitLock();
 }
 
 function updateRecords() {
-  $('records').textContent = rec.lap ? `Récords · vuelta ${fmtTime(rec.lap)} · carrera ${fmtTime(rec.total)} · estilo ${rec.style.toLocaleString('es-ES')}` : '';
+  const parts = [];
+  if (rec.lap) parts.push(`vuelta ${fmtTime(rec.lap)}`, `carrera ${fmtTime(rec.total)}`, `estilo ${rec.style.toLocaleString('es-ES')}`);
+  if (rec.acro) parts.push(`acrobacias ${rec.acro.toLocaleString('es-ES')}`);
+  $('records').textContent = parts.length ? `Récords · ${parts.join(' · ')}` : '';
 }
 
 // ---------- Interacción entre jets: rebufo y empujones ----------
@@ -743,6 +894,158 @@ function jetInteractions(dt) {
   }
   if (me.ctl.draft >= 1 && !game.drafting && playing()) { game.drafting = true; hud.feed('¡REBUFO!', 'near'); }
   else if (me.ctl.draft === 0) game.drafting = false;
+}
+
+// ---------- Objetos y combate ----------
+const LOCK_COS = Math.cos((22 * Math.PI) / 180), LOCK_RANGE = 900, LOCK_TIME = 0.6, RELOAD = 6, MAX_AMMO = 2;
+let alarmT = 0, itemTxt = '';
+const isCombat = () => game.mode === 'race' && rules().kind === 'combate';
+// Puesto de 0 (primero) a 1 (último), para repartir los objetos
+function placeFrac(r) { const o = standings(); return o.length > 1 ? o.indexOf(r) / (o.length - 1) : 0; }
+// Botones táctiles de objeto (solo en los modos con objetos)
+function touchItems() {
+  for (const [b, on] of [['item', items.on], ['item2', items.on && isCombat()]]) { const el = document.querySelector(`#touch [data-btn=${b}]`); if (el) el.hidden = !on; }
+}
+// Un misil o una mina le ha dado a un jet propio: explota como si chocara, y el derribo es de quien lo lanzó
+function itemHit(r, cause, by) {
+  if (!r.jet.alive) return;
+  const ev = [];
+  r.jet.crash(ev, cause);
+  ev[0].by = by;
+  if (r === me) handleEvents(ev, []); else handleBotEvents(r, ev, []);
+}
+// Cuenta caídas y derribos (las caídas de los jets de la red llegan con su estado)
+function creditCrash(r, by) {
+  if (game.mode !== 'race' || game.phase === 'countdown') return;
+  if (r.owned) { r.deaths++; r.item = null; }
+  const k = by && by !== r.id ? racerById(by) : null;
+  if (!k) return;
+  if (k.owned) k.kills++;
+  if (k === me) { hud.feed(`¡HAS DERRIBADO A ${r.name.toUpperCase()}!`, 'trick'); sound.sfx('kill'); style.bonus(150); }
+  else hud.feed(r === me ? `${k.name} te ha derribado` : `${k.name} ha derribado a ${r.name}`, r === me ? 'bad' : 'info');
+}
+// El rival más fácil de fijar delante de un jet (dentro del cono y del alcance)
+const _ld = new V3();
+function findTarget(r, cone = LOCK_COS, range = LOCK_RANGE, dir = r.jet.fwd) {
+  let best = null, bs = Infinity;
+  const p = r.jet.pos;
+  for (const o of racers) {
+    if (o === r || !o.view.alive) continue;
+    _ld.set(o.view.p.x - p.x, o.view.p.y - p.y, o.view.p.z - p.z);
+    const d = _ld.len();
+    if (d > range || d < 12) continue;
+    const c = _ld.dot(dir) / d;
+    if (c < cone) continue;
+    const score = d * (2.2 - c);
+    if (score < bs) { bs = score; best = o; }
+  }
+  return best;
+}
+// En la carrera con objetos, sin fijar, el misil va a por el de delante
+function racerAhead(r) {
+  const o = standings(), i = o.indexOf(r), a = i > 0 ? o[i - 1] : null;
+  return a && a.view.alive && a.view.p.distanceTo(r.view.p) < 1500 ? a : null;
+}
+function useItem(r, target) {
+  const it = r.item;
+  if (!it) return false;
+  if (it.id === 'misil' && !target) target = (r.lockT >= LOCK_TIME && r.lock) || (isCombat() ? null : racerAhead(r));
+  items.use(r, it.id, target);
+  if (--it.charges <= 0) r.item = null;
+  if (r === me && it.id === 'escudo') hud.feed('ESCUDO ACTIVADO', 'near');
+  return true;
+}
+function fireMissile(r, target) {
+  if (r.ammo <= 0) { if (r === me) { hud.feed('Sin misiles: se recargan solos', 'bad'); sound.sfx('trickFail'); } return; }
+  r.ammo--;
+  items.use(r, 'misil', target);
+}
+function reload(r, dt) {
+  if (r.ammo >= MAX_AMMO) { r.reloadT = 0; return; }
+  if ((r.reloadT += dt) >= RELOAD) { r.reloadT = 0; r.ammo++; if (r === me) sound.sfx('pickup'); }
+}
+// Mis objetos: F o clic (misil u objeto), G o clic derecho (objeto en combate)
+function playerItems() {
+  if (!items.on || game.phase !== 'race' || !jet.alive || game.autopilot || game.menuOpen || game.paused) return;
+  if (isCombat()) {
+    if (st.fire) fireMissile(me, me.lockT >= LOCK_TIME ? me.lock : null);
+    if (st.use2) useItem(me);
+  } else if (st.fire || st.use2) useItem(me);
+}
+// Fijar blanco: mantener a un rival dentro del cono 0,6 s
+function updateLock(dt) {
+  const want = items.on && game.phase === 'race' && jet.alive && (isCombat() ? me.ammo > 0 : me.item?.id === 'misil');
+  const mark = $('lockMark');
+  if (!want) { me.lock = null; me.lockT = 0; mark.hidden = true; return; }
+  const t = findTarget(me, LOCK_COS, LOCK_RANGE, st?.mouseAim ? aim.dir : jet.fwd);
+  if (t !== me.lock) { me.lock = t; me.lockT = 0; } else if (t) {
+    const was = me.lockT;
+    me.lockT += dt;
+    if (was < LOCK_TIME && me.lockT >= LOCK_TIME) sound.sfx('lock');
+  }
+  if (!me.lock) { mark.hidden = true; return; }
+  const p = project(_o.copy(me.lock.view.p));
+  if (!p.front) { mark.hidden = true; return; }
+  const locked = me.lockT >= LOCK_TIME, sc = locked ? 1 : 1.8 - 0.8 * (me.lockT / LOCK_TIME);
+  mark.hidden = false;
+  mark.classList.toggle('on', locked);
+  mark.style.transform = `translate(${p.x}px, ${p.y}px) rotate(45deg) scale(${sc})`;
+}
+// Bots en combate: persiguen a un rival y, si no, siguen el recorrido
+function botControl(r) {
+  const J = r.jet;
+  if (isCombat() && game.phase === 'race') {
+    if ((r.pickT = (r.pickT || 0) - STEP) <= 0 || !r.prey || !r.prey.view.alive || !racers.includes(r.prey)) {
+      r.pickT = 4 + Math.random() * 5;
+      let best = null, bd = Infinity;
+      for (const o of racers) { if (o === r || !o.view.alive) continue; const d = o.view.p.distanceTo(J.pos) * (0.6 + Math.random() * 0.8); if (d < bd) { bd = d; best = o; } }
+      r.prey = best;
+    }
+    if (r.prey && r.prey.view.p.distanceTo(J.pos) < 1400 && J.pos.y > 25) { r.ap.chase(J, STEP, r.ctl, game.clock, r.prey.view.p, r.prey.view.v); return; }
+  }
+  r.ap.control(J, STEP, r.ctl, game.clock);
+}
+// Bots: cuándo usar cada objeto
+function botItems(r, dt) {
+  if ((r.itemThink = (r.itemThink || 0) - dt) > 0) return;
+  r.itemThink = 0.2;
+  const J = r.jet, threat = items.threats(r).some(m => m.p.dist(J.pos) < 260);
+  if (isCombat() && r.ammo > 0) {
+    const t = findTarget(r, LOCK_COS, 700);
+    if (t) { r.aimT = (r.aimT || 0) + 0.2; if (r.aimT >= LOCK_TIME + 0.2 + Math.random() * 0.8) { r.aimT = 0; fireMissile(r, t); } } else r.aimT = 0;
+  }
+  const it = r.item;
+  if (!it) { r.holdT = 0; return; }
+  r.holdT = (r.holdT || 0) + 0.2;
+  let use = false, target = null;
+  if (it.id === 'escudo') use = threat || r.holdT > 12;
+  else if (it.id === 'bengalas') use = threat || r.holdT > (it.charges < ITEMS.bengalas.charges ? 6 : 20);
+  else if (it.id === 'mina') use = r.holdT > 2 && (racers.some(o => o !== r && o.view.alive && o.view.p.distanceTo(J.pos) < 160 && _ld.set(o.view.p.x - J.pos.x, o.view.p.y - J.pos.y, o.view.p.z - J.pos.z).dot(J.fwd) < 0) || r.holdT > 10);
+  else if (it.id === 'misil') { target = findTarget(r, LOCK_COS, 900); use = (target && r.holdT > 1.2) || r.holdT > 9; if (!target) target = isCombat() ? null : racerAhead(r); }
+  if (use) { useItem(r, target); r.holdT = 0; }
+}
+// Recuadro del objeto y aviso de misil
+function drawItemHud(dt) {
+  const box = $('itemBox'), warnEl = $('missileWarn');
+  const on = items.on && game.mode === 'race' && (game.phase === 'race' || game.phase === 'countdown');
+  if (!on) { box.hidden = true; warnEl.hidden = true; return; }
+  const it = me.item, combat = isCombat(), dev = st?.device;
+  const k1 = dev === 'pad' ? 'B' : dev === 'touch' ? 'OBJETO' : 'F o clic', k2 = dev === 'pad' ? 'Y' : dev === 'touch' ? 'OBJETO 2' : 'G o clic derecho';
+  let icon, name, hint;
+  if (combat) {
+    icon = '🚀'; name = `Misiles ${me.ammo}/${MAX_AMMO}${it ? ` · ${ITEMS[it.id].icon}` : ''}`;
+    hint = me.ammo < MAX_AMMO ? `recargando ${Math.floor((me.reloadT / RELOAD) * 10) * 10} %` : `${k1}: disparar`;
+    if (it) hint += ` · ${k2}: ${ITEMS[it.id].label.toLowerCase()}`;
+  } else {
+    icon = it ? ITEMS[it.id].icon : '◌'; name = it ? ITEMS[it.id].label + (it.charges > 1 ? ` ×${it.charges}` : '') : 'Sin objeto';
+    hint = it ? `${k1}: usar${it.id === 'misil' ? ' (fija a un rival para que no falle)' : ''}` : 'Cruza un anillo morado';
+  }
+  const txt = icon + name + hint;
+  if (txt !== itemTxt) { itemTxt = txt; $('itemIcon').textContent = icon; $('itemName').textContent = name; $('itemHint').textContent = hint; }
+  box.hidden = false;
+  const th = jet.alive ? items.threats(me).filter(m => m.p.dist(jet.pos) < 700) : [];
+  warnEl.hidden = !th.length;
+  if (th.length && (alarmT -= dt) <= 0) { const d = Math.min(...th.map(m => m.p.dist(jet.pos))); sound.sfx('alarm'); alarmT = 0.1 + (d / 700) * 0.45; }
 }
 
 // ---------- Cámara ----------
@@ -843,7 +1146,7 @@ function drawStandings(dt) {
   if ((standT -= dt) > 0) return;
   standT = 0.25;
   const order = standings();
-  box.innerHTML = order.map((r, i) => `<li class="${r === me ? 'me' : ''} ${r.finishTime != null ? 'done' : ''}" style="${r === me ? '' : `color:${r.color}`}">${i + 1}. ${r === me ? 'Tú' : r.name}</li>`).join('');
+  box.innerHTML = order.map((r, i) => `<li class="${r === me ? 'me' : ''} ${r.finishTime != null ? 'done' : ''}" style="${r === me ? '' : `color:${r.color}`}">${i + 1}. ${r === me ? 'Tú' : esc(r.name)}</li>`).join('');
   place.innerHTML = `${order.indexOf(me) + 1}º<small>/${order.length}</small>`;
 }
 function drawHud(dt) {
@@ -855,12 +1158,16 @@ function drawHud(dt) {
   const done = race.finished;
   const lapTime = game.phase === 'countdown' ? 0 : done ? race.lapTimes[race.lapTimes.length - 1] : Math.max(0, game.t - race.lapStart);
   const best = game.mode === 'trial' ? [race.best, rec.lap].filter(Boolean) : [race.best].filter(Boolean);
-  const label = game.mode === 'lobby' ? (net.online ? `SALA ${net.code}` : 'SALA') : game.mode === 'free' ? 'VUELO LIBRE' : null;
-  hud.setRace({ lap: race.lap || 1, laps: race.laps, time: done ? race.finishTime : Math.max(0, game.t), lapTime, best: best.length ? Math.min(...best) : null, free: !!label, label });
+  const tm = game.mode === 'race' && timed(), R = rules();
+  const label = tm ? (R.kind === 'combate' ? `COMBATE · ${me.kills} ${me.kills === 1 ? 'DERRIBO' : 'DERRIBOS'}` : 'ACROBACIAS')
+    : game.mode === 'lobby' ? (net.online ? `SALA ${net.code}` : 'SALA') : game.mode === 'free' ? 'VUELO LIBRE' : null;
+  hud.setRace({ lap: race.lap || 1, laps: race.laps, time: done ? race.finishTime : Math.max(0, game.t), lapTime: tm ? Math.max(0, R.time - Math.max(0, game.t)) : lapTime, best: tm ? null : best.length ? Math.min(...best) : null, free: !!label, label });
+  drawItemHud(dt);
+  updateLock(dt);
   hud.setFlight(jet.alive ? jet.speed * 3.6 : 0, jet.turbo, jet.pos.y, jet.boosting);
   hud.setStyle(style.total, style.mult, style.chainLeft(game.t));
   // siguiente puerta
-  const g = track.gates[race.next], showMarker = settings.assist >= 1 && jet.alive && playing() && game.phase !== 'countdown' && game.mode !== 'lobby';
+  const g = track.gates[race.next], showMarker = settings.assist >= 1 && jet.alive && playing() && game.phase !== 'countdown' && game.mode !== 'lobby' && !tm;
   if (showMarker) {
     const p = project(g.p), on = p.front && Math.abs(p.nx) < 0.95 && Math.abs(p.ny) < 0.9;
     if (on) hud.marker(p.x, p.y, true, jet.pos.dist(g.p), 0, true);
@@ -902,9 +1209,9 @@ function helpLine() {
 // ---------- Clima por tramos, vapor del tren y avisos de viento ----------
 const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 function updateAtmosphere(dt) {
-  const s = race.s || 0;
-  const nightT = sstep(ZONE.night0 - 5, ZONE.night0 + 55, s) * (1 - sstep(ZONE.night1 - 260, ZONE.night1 + 40, s));
-  const pinkT = sstep(ZONE.pink0 - 160, ZONE.pink0 + 120, s) * (1 - sstep(ZONE.pink1 - 220, ZONE.pink1 + 40, s));
+  const s = game.phase === 'replay' ? replayS : race.s || 0;
+  const nightT = game.forceNight ? 1 : sstep(ZONE.night0 - 5, ZONE.night0 + 55, s) * (1 - sstep(ZONE.night1 - 260, ZONE.night1 + 40, s));
+  const pinkT = game.forceNight ? 0 : sstep(ZONE.pink0 - 160, ZONE.pink0 + 120, s) * (1 - sstep(ZONE.pink1 - 220, ZONE.pink1 + 40, s));
   const k = cam.cut ? 1 : damp(3.5, dt);
   atm.night += (nightT - atm.night) * k;
   atm.pink += (pinkT - atm.pink) * k;
@@ -926,8 +1233,8 @@ function updateVoices(dt) {
   lisPrev.copy(camera.position);
   lisP.copy(camera.position);
   sound.setListener(lisP, _f.set(0, 0, -1).applyQuaternion(camera.quaternion), _u.set(0, 1, 0).applyQuaternion(camera.quaternion));
-  const on = playing() || game.phase === 'finished';
-  const near = on ? racers.filter(r => r !== me && r.view.alive && r.view.p.distanceTo(lisP) < 700).sort((a, b) => a.view.p.distanceTo(lisP) - b.view.p.distanceTo(lisP)).slice(0, 4) : [];
+  const on = playing() || game.phase === 'finished' || game.phase === 'replay';
+  const near = on ? racers.filter(r => (r !== me || game.phase === 'replay') && r.view.alive && r.view.p.distanceTo(lisP) < 700).sort((a, b) => a.view.p.distanceTo(lisP) - b.view.p.distanceTo(lisP)).slice(0, 4) : [];
   for (const r of racers) {
     if (near.includes(r)) {
       if (!r.voice) r.voice = new RemoteVoice(sound, r.cfg.engine);
@@ -990,6 +1297,9 @@ function frame(now) {
   st = input.poll();
   // en el hangar solo se dibuja el estudio con el jet
   if (game.phase === 'hangar') { hangar.frame(dt); requestAnimationFrame(frame); return; }
+  // repetición y modo foto: su propio bucle
+  if (photo.on && st.pause) { exitPhoto(); st.pause = false; }
+  if (game.phase === 'replay') { replayFrame(dt); requestAnimationFrame(frame); return; }
 
   // botones generales
   if (st.pause && (playing() || game.phase === 'finished')) togglePause();
@@ -999,7 +1309,7 @@ function frame(now) {
   prevBoost = st.boost;
 
   // en línea, el reloj de los obstáculos y el de la carrera siguen al del anfitrión
-  if (net.online) {
+  if (net.online && !photo.on) {
     const hc = net.hostNow() / 1000;
     if (Math.abs(hc - game.clock) > 0.08) game.clock = hc;
   }
@@ -1022,6 +1332,7 @@ function frame(now) {
         if (req) pendingTrick = req;
         if (st.mouseAim && jet.alive && !jet.trick) { aim.yaw -= st.aimDX; aim.pitch -= st.aimDY; updateAimDir(); } else syncAim();
         if (game.phase === 'race' && game.t < 0.2 && st.boost && game.lastBoostEdge > -0.3) perfectStart();
+        playerItems();
       } else syncAim();
       acc += dt;
       let n = 0;
@@ -1030,6 +1341,8 @@ function frame(now) {
       if (multi() || game.phase === 'menu') jetInteractions(dt);
       if (game.phase === 'finished' && (game.finishT += dt) > 2.5 && $('results').hidden && game.mode === 'trial' && !game.resultsShown) { game.resultsShown = true; showOverlay('results'); }
       checkRaceEnd();
+      items.update(dt);
+      if ((game.mode === 'race' || game.mode === 'trial') && (game.phase === 'race' || (game.phase === 'finished' && !game.resultsShown))) recorder.sample(dt, game.clock, racerById, items);
     }
   }
   if (net.online && (sendT -= dt) <= 0) { sendT = 0.05; sendState(); }
@@ -1055,8 +1368,8 @@ function frame(now) {
     fx.update(dt, { speed: jet.alive && game.phase !== 'menu' ? jet.speed + (me.ctl.draft ? 20 : 0) : 0, cam: camera });
     warn = jet.alive && game.phase !== 'menu' ? collisionWarning(jet, track) : null;
   }
-  updateCamera(dt);
-  drawHud(dt);
+  if (photo.on) photoCamera(dt, rp, rq); else updateCamera(dt);
+  if (!photo.on) drawHud(dt);
   updateVoices(dt);
   if (playing() && !game.paused && sound.ctx) {
     const slip = jet.alive ? clamp(Math.abs(jet.w.y) * 0.6 + jet.gload / 14, 0, 1) : 0;
@@ -1065,6 +1378,274 @@ function frame(now) {
   world.render();
   requestAnimationFrame(frame);
 }
+
+// ---------- Repetición ----------
+const recorder = new ReplayRecorder();
+let replay = null, replayS = 0, replayBack = null;
+const rpPose = { p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), flags: 0, throttle: 0.5, s: 0 };
+const fmtClock = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+function startReplay() {
+  if (recorder.frames.length < 10) { toast('No hay repetición de esta partida'); return; }
+  replayBack = { results: !$('results').hidden };
+  replay?.dispose();
+  replay = new ReplayPlayer(scene, recorder, track, {
+    boom: e => { fx.explosion(e.p, e.v); const r = racerById(e.id); if (r) fx.eject(e.p, e.v, r.cfg); if (camera.position.distanceTo(_o.set(e.p.x, e.p.y, e.p.z)) < 600) sound.sfx('explosion'); },
+  });
+  const mine = recorder.ids.indexOf(me.id);
+  replay.focus = mine >= 0 ? mine : 0;
+  replay.seek(0);
+  game.phase = 'replay'; game.paused = false;
+  items.clear(); items.group.visible = items.on;
+  ghostModel.group.visible = false;
+  for (const r of racers) r.smoke.clear();
+  fx.clearTrails();
+  hud.show(false); hud.warn(0);
+  showOverlay(null);
+  $('replayBar').hidden = false; $('rpInfo').hidden = false;
+  $('rpDur').textContent = fmtClock(replay.duration);
+  renderReplayBar();
+  input.exitLock();
+  sound.silence();
+}
+function stopReplay() {
+  if (!replay) return;
+  replay.dispose(); replay = null;
+  $('replayBar').hidden = true; $('rpInfo').hidden = true;
+  if (photo.on) exitPhoto();
+  for (const r of racers) { r.smoke.clear(); if (r.shieldMesh) r.shieldMesh.visible = false; }
+  fx.clearTrails();
+  // vuelve a los resultados con todo como estaba (los jets siguen volando solos)
+  game.phase = 'finished'; game.autopilot = true; cam.cut = true;
+  showOverlay(replayBack?.results ? 'results' : null);
+  last = performance.now();
+}
+function renderReplayBar() {
+  if (!replay) return;
+  $('rpPlay').textContent = replay.playing ? '⏸' : '▶';
+  $('rpSpeed').textContent = `${String(replay.speed).replace('.', ',')}×`;
+  $('rpCam').textContent = `🎬 ${CAM_LABEL[replay.camMode]}`;
+}
+function replayFocusRacer() { return racerById(recorder.ids[replay.focus]); }
+let rpBarT = 0;
+function replayFrame(dt) {
+  const R = replay;
+  // teclado: espacio pausa, flechas avanzan o retroceden, A/D cambian de piloto, C la cámara, Esc sale
+  if (!photo.on) {
+    if (st.trickDown) { if (R.t >= R.duration) R.seek(0); R.playing = !R.playing; renderReplayBar(); }
+    if (st.pause) { stopReplay(); return; }
+    if (st.cam) cycleReplayCam();
+  }
+  R.advance(photo.on ? 0 : dt);
+  game.clock = R.clock();
+  track.update(game.clock);
+  view.update(game.clock);
+  // poses de todos los jets
+  recorder.ids.forEach((id, i) => {
+    const r = racerById(id);
+    if (!r) return;
+    const P = R.pose(i, rpPose);
+    const alive = !!P && (P.flags & 1) > 0;
+    r.model.group.visible = alive;
+    r.view.alive = alive;
+    if (!P) return;
+    r.view.p.copy(P.p); r.view.q.copy(P.q); r.view.v.copy(P.v); r.view.boost = (P.flags & 2) > 0;
+    r.model.group.position.copy(P.p); r.model.group.quaternion.copy(P.q);
+    r.model.update(dt, P.throttle, r.view.boost);
+    if (r === me) { model.pilot.visible = true; }
+    if (r.shieldMesh || P.flags & 8) items.shieldOf(r).visible = alive && (P.flags & 8) > 0;
+    r.smoke.push(_o.copy(r.model.nozzles[0]).applyQuaternion(P.q).add(P.p), (P.flags & 4) > 0 && alive && R.playing, game.clock, dt);
+    r.smoke.update(game.clock, camera.position);
+  });
+  R.drawItems();
+  // cámara sobre el piloto enfocado
+  const fr = replayFocusRacer(), F = R.pose(R.focus, rpPose);
+  if (F) {
+    replayS = F.s;
+    if (photo.on) photoCamera(dt, F.p, F.q);
+    else {
+      const fov = R.camera(dt, camera, F);
+      cam.fov += (fov - cam.fov) * (R.cut ? 1 : damp(3, dt));
+      if (Math.abs(camera.fov - cam.fov) > 0.05) { camera.fov = cam.fov; camera.updateProjectionMatrix(); fx.setPointScale(renderer, camera); }
+    }
+    world.followSun(F.p);
+  }
+  if ((rpBarT -= dt) <= 0) {
+    rpBarT = 0.2;
+    $('rpTime').textContent = fmtClock(R.t);
+    if (!seeking) $('rpSeek').value = String(Math.round((R.t / (R.duration || 1)) * 1000));
+    const order = recorder.ids.length > 1 ? ` · ${R.focus + 1}/${recorder.ids.length}` : '';
+    $('rpName').textContent = ` · ${fr ? (fr === me ? 'Tú' : fr.name) : '—'}${order}`;
+    if (!R.playing) renderReplayBar();
+  }
+  world.setBlur(0);
+  updateAtmosphere(dt);
+  fx.update(dt, { speed: 0, cam: camera });
+  fx.trailsUpdate(dt, null, 0, camera.position);
+  updateVoices(dt);
+  world.render();
+}
+function cycleReplayCam() {
+  replay.camMode = REPLAY_CAMS[(REPLAY_CAMS.indexOf(replay.camMode) + 1) % REPLAY_CAMS.length];
+  replay.cut = true;
+  renderReplayBar();
+}
+function replayFocus(d) {
+  const n = recorder.ids.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (replay.focus + d * k + n * 2) % n;
+    if (racerById(recorder.ids[i])) { replay.focus = i; break; }
+  }
+  replay.cut = true;
+  for (const r of racers) r.smoke.clear();
+  fillPhotoTargets();
+}
+let seeking = false;
+$('rpPlay').onclick = () => { if (replay.t >= replay.duration) replay.seek(0); replay.playing = !replay.playing; renderReplayBar(); };
+$('rpSpeed').onclick = () => { const S = [0.25, 0.5, 1, 2]; replay.speed = S[(S.indexOf(replay.speed) + 1) % S.length]; renderReplayBar(); };
+$('rpCam').onclick = cycleReplayCam;
+$('rpPrev').onclick = () => replayFocus(-1);
+$('rpNext').onclick = () => replayFocus(1);
+$('rpExit').onclick = () => stopReplay();
+$('rpPhoto').onclick = () => enterPhoto();
+$('rpSeek').oninput = e => { seeking = true; replay.seek((+e.target.value / 1000) * replay.duration); for (const r of racers) r.smoke.clear(); };
+$('rpSeek').onchange = () => { seeking = false; };
+addEventListener('keydown', e => {
+  if (game.phase !== 'replay' || photo.on || !replay) return;
+  if (e.code === 'ArrowLeft') replay.seek(replay.t - 5);
+  else if (e.code === 'ArrowRight') replay.seek(replay.t + 5);
+  else if (e.code === 'KeyA' || e.code === 'KeyQ') replayFocus(-1);
+  else if (e.code === 'KeyD' || e.code === 'KeyE') replayFocus(1);
+  else if (e.code === 'KeyF') enterPhoto();
+  else return;
+  for (const r of racers) r.smoke.clear();
+});
+
+// ---------- Modo foto ----------
+// Cámara libre alrededor del jet, filtros, viñeta y foto en PNG a la resolución de la pantalla
+const photo = { on: false, yaw: 150, pitch: 12, dist: 18, roll: 0, fov: 55, filter: 'none', vig: 0.3, dof: 0, mark: true, target: null, drag: null, from: null };
+const FILTERS = {
+  none: '', calido: 'sepia(0.25) saturate(1.25) hue-rotate(-8deg) brightness(1.04)', frio: 'saturate(0.9) hue-rotate(12deg) brightness(1.02) contrast(1.05)',
+  sueno: 'saturate(1.6) hue-rotate(-25deg) contrast(0.92) brightness(1.08)', bn: 'grayscale(1) contrast(1.15)', sepia: 'sepia(0.85) contrast(1.05)', cine: 'contrast(1.18) saturate(0.85) brightness(0.96)',
+};
+function enterPhoto() {
+  const can = game.phase === 'replay' || (game.paused && !net.online);
+  if (!can) return;
+  photo.on = true;
+  photo.from = game.phase === 'replay' ? 'replay' : 'pause';
+  if (replay) replay.playing = false;
+  // empieza desde donde estaba la cámara, mirando al jet
+  const target = photo.from === 'replay' ? replay.pose(replay.focus, rpPose)?.p : rp;
+  if (target) {
+    _o.subVectors(camera.position, target);
+    photo.dist = clamp(_o.length(), 4, 120);
+    photo.yaw = (Math.atan2(_o.x, _o.z) * 180) / Math.PI;
+    photo.pitch = clamp((Math.asin(clamp(_o.y / (_o.length() || 1), -1, 1)) * 180) / Math.PI, -80, 85);
+  }
+  photo.fov = clamp(Math.round(camera.fov), 15, 100);
+  photo.roll = 0;
+  syncPhotoInputs();
+  fillPhotoTargets();
+  $('phDofRow').hidden = !world.setDof(photo.dof, photo.dist); // sin posprocesado (calidad baja) no hay desenfoque
+  document.body.classList.add('photo');
+  showOverlay(null);
+  $('replayBar').hidden = true; $('rpInfo').hidden = true;
+  $('photoBar').hidden = false; $('photoHide').hidden = true;
+  applyPhotoFilter();
+}
+function exitPhoto() {
+  photo.on = false;
+  world.setDof(0, 20);
+  document.body.classList.remove('photo');
+  renderer.domElement.style.filter = '';
+  $('vigOverlay')?.remove();
+  $('photoBar').hidden = true; $('photoHide').hidden = true;
+  cam.cut = true;
+  if (photo.from === 'replay' && replay) { $('replayBar').hidden = false; $('rpInfo').hidden = false; renderReplayBar(); if (replay) replay.cut = true; } else if (game.paused) showOverlay('pause');
+}
+function syncPhotoInputs() {
+  $('phDist').value = photo.dist; $('phPitch').value = photo.pitch; $('phYaw').value = ((photo.yaw + 540) % 360) - 180;
+  $('phRoll').value = photo.roll; $('phFov').value = photo.fov; $('phFilter').value = photo.filter; $('phVig').value = photo.vig; $('phMark').checked = photo.mark; $('phDof').value = photo.dof;
+}
+// En la repetición se puede elegir a qué jet mirar
+function fillPhotoTargets() {
+  const sel = $('phTarget'), row = sel.closest('label');
+  row.hidden = game.phase !== 'replay';
+  if (row.hidden || !replay) return;
+  sel.innerHTML = recorder.ids.map((id, i) => { const r = racerById(id); return r ? `<option value="${i}">${r === me ? 'Tú' : esc(r.name)}</option>` : ''; }).join('');
+  sel.value = String(replay.focus);
+}
+function applyPhotoFilter() {
+  renderer.domElement.style.filter = FILTERS[photo.filter] || '';
+  let v = $('vigOverlay');
+  if (!v) { v = document.createElement('div'); v.id = 'vigOverlay'; v.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:1'; document.body.appendChild(v); }
+  v.style.background = `radial-gradient(ellipse at center, transparent ${Math.round(70 - photo.vig * 40)}%, rgba(0,0,0,${(photo.vig * 0.85).toFixed(2)}) 100%)`;
+}
+const _pq = new THREE.Quaternion();
+function photoCamera(dt, P) {
+  const y = (photo.yaw * Math.PI) / 180, x = (photo.pitch * Math.PI) / 180;
+  camera.position.set(P.x + Math.sin(y) * Math.cos(x) * photo.dist, P.y + Math.sin(x) * photo.dist, P.z + Math.cos(y) * Math.cos(x) * photo.dist);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(P.x, P.y, P.z);
+  if (photo.roll) camera.quaternion.multiply(_pq.setFromAxisAngle(_t.set(0, 0, 1), (photo.roll * Math.PI) / 180));
+  if (Math.abs(camera.fov - photo.fov) > 0.05) { camera.fov = cam.fov = photo.fov; camera.updateProjectionMatrix(); fx.setPointScale(renderer, camera); }
+  world.setBlur(0);
+  world.setDof(photo.dof, photo.dist);
+}
+// Guarda la foto: se dibuja una vez a la máxima resolución y se copia con el filtro, la viñeta y la marca
+function savePhoto() {
+  const old = pixelRatio, hi = Math.min(2, Math.max(devicePixelRatio, 1));
+  world.setPixelRatio(hi);
+  world.render();
+  const src = renderer.domElement, W = src.width, H = src.height;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.filter = FILTERS[photo.filter] || 'none';
+  g.drawImage(src, 0, 0);
+  g.filter = 'none';
+  if (photo.vig > 0) {
+    const grd = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * (0.7 - photo.vig * 0.4) * 0.6, W / 2, H / 2, Math.hypot(W, H) / 2);
+    grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(1, `rgba(0,0,0,${photo.vig * 0.85})`);
+    g.fillStyle = grd; g.fillRect(0, 0, W, H);
+  }
+  if (photo.mark) {
+    const fs = Math.round(H * 0.035);
+    g.font = `900 ${fs}px system-ui, sans-serif`; g.textAlign = 'right'; g.textBaseline = 'bottom';
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.fillText('JETTISM', W - fs * 0.8 + 2, H - fs * 0.6 + 2);
+    g.fillStyle = 'rgba(255,248,238,.9)'; g.fillText('JETTISM', W - fs * 0.8, H - fs * 0.6);
+  }
+  world.setPixelRatio(old);
+  c.toBlob(b => {
+    if (!b) { toast('No se pudo guardar la foto'); return; }
+    const a = document.createElement('a'), d = new Date();
+    a.href = URL.createObjectURL(b);
+    a.download = `jettism-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    sound.sfx('ring');
+    toast(`Foto guardada (${W}×${H})`);
+  }, 'image/png');
+  if (window.jetDebug) window.jetDebug.lastPhoto = { w: W, h: H };
+}
+const phIn = (id, key, f = Number) => { $(id).addEventListener('input', e => { photo[key] = f(e.target.type === 'checkbox' ? e.target.checked : e.target.value); applyPhotoFilter(); }); };
+phIn('phDist', 'dist'); phIn('phPitch', 'pitch'); phIn('phYaw', 'yaw'); phIn('phRoll', 'roll'); phIn('phFov', 'fov'); phIn('phVig', 'vig'); phIn('phDof', 'dof');
+phIn('phFilter', 'filter', String); phIn('phMark', 'mark', Boolean);
+$('phTarget').onchange = e => { if (replay) { replay.focus = +e.target.value; replay.cut = true; } };
+$('phSave').onclick = savePhoto;
+$('phExit').onclick = exitPhoto;
+$('phHide').onclick = () => { $('photoBar').hidden = true; $('photoHide').hidden = false; };
+$('photoHide').onclick = () => { $('photoBar').hidden = false; $('photoHide').hidden = true; };
+$('btnPhoto').onclick = enterPhoto;
+// arrastrar para girar y rueda para acercar
+renderer.domElement.addEventListener('pointerdown', e => { if (photo.on) { photo.drag = { x: e.clientX, y: e.clientY }; renderer.domElement.setPointerCapture?.(e.pointerId); } });
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!photo.on || !photo.drag) return;
+  photo.yaw -= (e.clientX - photo.drag.x) * 0.3; photo.pitch = clamp(photo.pitch + (e.clientY - photo.drag.y) * 0.3, -80, 85);
+  photo.drag = { x: e.clientX, y: e.clientY };
+  syncPhotoInputs();
+});
+addEventListener('pointerup', () => { photo.drag = null; });
+renderer.domElement.addEventListener('wheel', e => { if (!photo.on) return; e.preventDefault(); photo.dist = clamp(photo.dist * (e.deltaY > 0 ? 1.1 : 0.9), 4, 120); syncPhotoInputs(); }, { passive: false });
 
 // ---------- Interfaz ----------
 const OVERLAYS = ['menu', 'settingsPanel', 'controlsPanel', 'pause', 'results', 'lobby', 'hangar'];
@@ -1081,6 +1662,9 @@ function enterHangar() {
 let backTo = 'menu';
 function showOverlay(id) {
   for (const o of OVERLAYS) $(o).hidden = o !== id;
+  const inReplay = game.phase === 'replay';
+  if (replay && !inReplay && id !== 'results') { replay.dispose(); replay = null; $('replayBar').hidden = true; $('rpInfo').hidden = true; }
+  if (photo.on && !inReplay && !(game.paused && (id === null || id === 'pause'))) { photo.on = false; world.setDof(0, 20); document.body.classList.remove('photo'); renderer.domElement.style.filter = ''; $('vigOverlay')?.remove(); $('photoBar').hidden = true; $('photoHide').hidden = true; }
   $('touch').hidden = !(touchDevice && !id && playing());
 }
 function lockIfNeeded() { if (settings.scheme === 'mouse' && !touchDevice) input.requestLock(); }
@@ -1089,7 +1673,7 @@ function togglePause() {
   if (game.mode === 'lobby') { if ($('lobby').hidden) openLobbyPanel(); else closeLobbyPanel(); return; }
   if (net.online) {
     if (game.menuOpen) resume();
-    else { game.menuOpen = true; showOverlay('pause'); input.exitLock(); }
+    else { game.menuOpen = true; showOverlay('pause'); $('btnPhoto').hidden = true; input.exitLock(); }
     return;
   }
   game.paused ? resume() : pause();
@@ -1100,6 +1684,7 @@ function pause() {
   if (!playing() || game.paused) return;
   game.paused = true;
   showOverlay('pause');
+  $('btnPhoto').hidden = false;
   input.exitLock();
   sound.silence();
 }
@@ -1148,7 +1733,9 @@ $('btnCopy').onclick = async () => {
   try { await navigator.clipboard.writeText($('link').value); } catch { $('link').select(); document.execCommand('copy'); }
   toast('Enlace copiado');
 };
-$('btnStart').onclick = () => { if (!net.online || net.host) startRace(); };
+$('btnStart').onclick = () => { if (!net.online || net.host) startRace(null); };
+$('mode').onchange = e => { lobby.mode = e.target.value; game.cup = null; if (net.online) broadcastLobby(); else renderLobby(); };
+$('time').onchange = e => { lobby.time = +e.target.value; if (net.online) broadcastLobby(); else renderLobby(); };
 $('btnFly').onclick = closeLobbyPanel;
 $('btnLeave').onclick = () => toMenu();
 $('bots').oninput = e => { lobby.bots = +e.target.value; if (net.online) broadcastLobby(); else renderLobby(); };
@@ -1202,6 +1789,8 @@ if (DEBUG) {
     get jet() { return jet; }, get race() { return race; }, get style() { return style; }, get me() { return me; }, get racers() { return racers; },
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
     startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
+    items, recorder, photo, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
+    get replay() { return replay; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },

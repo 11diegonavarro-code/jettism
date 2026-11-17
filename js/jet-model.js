@@ -70,7 +70,7 @@ function flameMat(color) {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color(color) }, uPower: { value: 1 }, uTime: { value: 0 }, uDiamonds: { value: 0 } },
     vertexShader: flameVS, fragmentShader: flameFS,
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, fog: false,
   });
 }
 function flameCone(radius, mat) {

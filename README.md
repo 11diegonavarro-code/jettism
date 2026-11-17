@@ -4,7 +4,7 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
 
 **Jugar:** https://11diegonavarro-code.github.io/jettism/
 
-## Qué hay (partes 1 a 4 de 6)
+## Qué hay (partes 1 a 5 de 6)
 
 - **Hangar:**
   - Piezas: 4 morros, 4 alas, 4 motores y 4 colas, que cambian velocidad, aceleración, giro, turbo y piruetas. Todas las combinaciones suman lo mismo.
@@ -27,6 +27,15 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
   - **Recorrido:** bosque de torres de cera, acantilado de cajones con un atajo por dentro de un cajón gigante, escaleras que giran en la horquilla y péndulos colgados de las nubes.
   - **Obstáculos:** una puerta que lleva a la noche, puentes de papel que se pliegan, una ballena de nubes y un tren de vapor sobre el lago espejo.
   - **Clima por tramos:** calima, niebla rosa, viento lateral, corrientes térmicas y noche de remolinos.
+- **Modos** (contra bots u online):
+  - carrera normal;
+  - carrera con objetos: misil teledirigido, escudo, mina y bengalas, mejores cuanto más atrás vas;
+  - copa de tres carreras (normal, al revés y de noche) con puntos por puesto y por estilo;
+  - combate aéreo todos contra todos, con misiles que se recargan y fijación de blanco;
+  - acrobacias: gana quien más estilo consiga en el tiempo.
+- **Repetición** de cada carrera con cámaras de cine (automática, persecución, órbita, pie de pista, pasada, desde arriba, morro y ala), cámara lenta y salto a cualquier momento.
+- **Modo foto** desde la pausa o la repetición: cámara libre, zoom, inclinación, filtros, viñeta y foto en PNG.
+- Récords de vuelta, carrera, estilo y acrobacias.
 - Teclado y ratón, esquema clásico, mando y pantalla táctil.
 
 ## Técnica

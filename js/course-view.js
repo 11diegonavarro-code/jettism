@@ -136,7 +136,7 @@ export class CourseView {
         }
         // un velo oscuro y estrellado dentro del marco: al otro lado ya es de noche
         const veil = new THREE.Mesh(new THREE.PlaneGeometry(d.half * 2, d.tall * 2), new THREE.ShaderMaterial({
-          uniforms: { uTime: { value: 0 } }, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+          uniforms: { uTime: { value: 0 } }, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, blending: THREE.AdditiveBlending,
           vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
           fragmentShader: `uniform float uTime; varying vec2 vUv;
             float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -310,7 +310,7 @@ export class CourseView {
       return m;
     });
     const bm = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color('#ff8a2a'), emissiveIntensity: 5, roughness: 0.4 });
-    const disc = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff9a40').multiplyScalar(0.6), transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const disc = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff9a40').multiplyScalar(0.6), transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, blending: THREE.AdditiveBlending });
     this.boostRings = this.track.boostRings.map(r => {
       const g = new THREE.Group();
       g.add(new THREE.Mesh(new THREE.TorusGeometry(r.r, 0.7, 10, 48), bm));
@@ -326,7 +326,7 @@ export class CourseView {
   buildThermals() {
     this.thermalMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color('#ffb070') } },
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, blending: THREE.AdditiveBlending, fog: false,
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: `uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
         void main() {

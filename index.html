@@ -139,7 +139,31 @@
   #hStats .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), var(--gold)); }
   #hStats b { color: var(--text); text-align: right; }
   #hangar .panel { max-height: calc(100vh - 32px); }
+  #itemBox { position: absolute; left: 18px; bottom: 44px; display: flex; gap: 10px; align-items: center; background: #1a1640cc; border: 2px solid var(--line); border-radius: 14px; padding: 8px 14px 8px 10px; }
+  #itemIcon { font-size: 34px; line-height: 1; }
+  #itemBox b { display: block; font-size: 17px; }
+  #itemBox small { font-size: 12px; color: var(--muted); font-weight: 700; }
+  #missileWarn { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); font-size: 34px; color: #ff4b4b; animation: blink .4s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  #lockMark { position: absolute; left: 0; top: 0; width: 46px; height: 46px; margin: -23px 0 0 -23px; border: 3px solid #ffcf6b; transform-origin: center; will-change: transform; }
+  #lockMark.on { border-color: #ff4b4b; box-shadow: 0 0 12px #ff4b4b; }
+  [data-btn=item] { right: 132px; bottom: 124px; border-color: #b884ff !important; }
+  [data-btn=item2] { right: 214px; bottom: 60px; border-color: #b884ff !important; font-size: 11px !important; }
   [data-btn=smoke] { right: 22px; top: 160px; width: 56px !important; height: 56px !important; font-size: 11px !important; }
+
+  /* Repetición y modo foto */
+  #replayBar { position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; background: var(--panel); border: 2px solid var(--line); border-radius: 18px; padding: 10px 12px; width: min(860px, calc(100% - 24px)); box-shadow: 0 12px 40px #0008; }
+  #replayBar button { padding: 8px 12px; border-radius: 12px; }
+  #replayBar .grow { flex: 1 1 200px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 700; font-size: 13px; }
+  #replayBar input[type=range] { flex: 1; }
+  #rpInfo { position: fixed; left: 50%; top: max(14px, env(safe-area-inset-top)); transform: translateX(-50%); z-index: 9; font-weight: 900; font-size: 15px; letter-spacing: .08em; padding: 6px 14px; border-radius: 12px; background: #0008; }
+  #rpInfo b { color: var(--rose); }
+  #photoBar { position: fixed; right: 16px; top: 16px; z-index: 9; width: min(300px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; background: var(--panel); border: 2px solid var(--line); border-radius: 18px; padding: 14px 16px; box-shadow: 0 12px 40px #0008; }
+  #photoBar h3 { margin: 0 0 6px; }
+  #photoBar label { margin: 6px 0; font-size: 13px; }
+  #photoBar label > input[type=range], #photoBar label > select { max-width: 150px; }
+  #photoHide { position: fixed; left: 16px; bottom: 16px; z-index: 9; }
+  body.photo #hud, body.photo #touch { display: none !important; }
 
   /* Táctil */
   #touch { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
@@ -198,7 +222,7 @@
     </details>
     <p id="menuMsg" class="msg"></p>
     <p id="records" class="records"></p>
-    <p class="hint">Mapa: <b>Desierto de los sueños</b>. Busca el atajo del cajón gigante en el acantilado, aprovecha las térmicas sobre el lago y cruza la puerta hacia la noche. Partes 1 a 4 de 6: prepara tu jet en el hangar. Los modos con objetos, combate y copa llegan en la siguiente.</p>
+    <p class="hint">Mapa: <b>Desierto de los sueños</b>. Busca el atajo del cajón gigante en el acantilado, aprovecha las térmicas sobre el lago y cruza la puerta hacia la noche. Modos: carrera, carrera con objetos, copa de tres carreras, combate aéreo y acrobacias. Al acabar puedes ver la repetición y sacar fotos.</p>
     <p class="hint">Sin cookies ni analítica: tus ajustes, récords y fantasma se guardan solo en este navegador. En el modo online se comparten tu nombre, tu color y tu posición con la sala. <a href="privacidad.html" style="color:var(--cyan)">Privacidad</a></p>
   </div>
 </div>
@@ -229,7 +253,11 @@
       <h3>Siempre</h3>
       <kbd>Espacio</kbd> + dirección: pirueta · <kbd>H</kbd> humo de colores (escribe en el cielo) · <kbd>C</kbd> cámara · <kbd>V</kbd> mirar atrás · <kbd>R</kbd> volver al recorrido · <kbd>Esc</kbd> pausa
       <h3>Mando</h3>
-      Stick izquierdo: dirigir · <b>RT</b>/<b>LT</b> gas y freno · <b>LB</b>/<b>RB</b> timón · <b>A</b> turbo · <b>X</b> + stick: pirueta · <b>Y</b> cámara · <b>B</b> mirar atrás · cruceta abajo: humo · stick derecho: mirar alrededor · <b>Start</b> pausa · <b>Select</b> volver al recorrido
+      Stick izquierdo: dirigir · <b>RT</b>/<b>LT</b> gas y freno · <b>LB</b>/<b>RB</b> timón · <b>A</b> turbo · <b>X</b> + stick: pirueta · <b>B</b>/<b>Y</b> objetos · stick derecho pulsado: cámara · stick izquierdo pulsado: mirar atrás · cruceta abajo: humo · stick derecho: mirar alrededor · <b>Start</b> pausa · <b>Select</b> volver al recorrido
+      <h3>Objetos y combate</h3>
+      <kbd>F</kbd> o clic izquierdo: usar el objeto (en combate, disparar misil) · <kbd>G</kbd> o clic derecho: en combate, usar el objeto · Mando: <b>B</b> y <b>Y</b> (la cámara pasa al stick derecho pulsado, y mirar atrás al izquierdo pulsado). Un misil se esquiva con bengalas, haciendo la cobra o pasando muy cerca de un obstáculo.
+      <h3>Repetición y modo foto</h3>
+      En los resultados, «Ver repetición»: <kbd>Espacio</kbd> pausa · <kbd>←</kbd>/<kbd>→</kbd> 5 s atrás o adelante · <kbd>A</kbd>/<kbd>D</kbd> otro piloto · <kbd>C</kbd> cámara (automática, persecución, órbita, pie de pista, pasada, desde arriba, morro y ala) · <kbd>F</kbd> modo foto · <kbd>Esc</kbd> salir. El modo foto también está en la pausa (sin conexión): arrastra para girar, rueda para acercar, filtros y «Guardar foto» en PNG.
       <h3>Con más jets</h3>
       <b>Rebufo</b>: pégate detrás de otro jet y ganarás velocidad y turbo. <b>Formación</b>: si dos jets cercanos hacen la misma pirueta a la vez, los dos puntúan ×2.
       <h3>Piruetas (Espacio o X + …)</h3>
@@ -249,6 +277,7 @@
       <button id="btnPSettings">Ajustes</button>
       <button id="btnPControls">Controles</button>
     </div>
+    <div class="row"><button id="btnPhoto">📷 Modo foto</button></div>
     <div style="text-align:center"><button id="btnQuit" class="link">Salir al menú</button></div>
   </div>
 </div>
@@ -280,8 +309,17 @@
     </div>
     <ul id="players"></ul>
     <div id="hostOpts">
+      <label>Modo <select id="mode">
+        <option value="carrera">Carrera</option>
+        <option value="objetos">Carrera con objetos</option>
+        <option value="copa">Copa: 3 carreras</option>
+        <option value="combate">Combate aéreo</option>
+        <option value="acro">Acrobacias</option>
+      </select></label>
+      <p id="modeInfo" class="hint"></p>
       <label>Bots <input type="range" id="bots" min="0" max="7"> <b id="botsVal"></b></label>
-      <label>Vueltas <input type="range" id="laps" min="1" max="5"> <b id="lapsVal"></b></label>
+      <label id="lapsRow">Vueltas <input type="range" id="laps" min="1" max="5"> <b id="lapsVal"></b></label>
+      <label id="timeRow">Tiempo <select id="time"><option value="120">2 minutos</option><option value="180">3 minutos</option><option value="300">5 minutos</option></select></label>
       <label>Bots <select id="diff"><option value="facil">Fáciles</option><option value="normal">Normales</option><option value="dificil">Difíciles</option></select></label>
       <button id="btnStart" class="primary big">¡Empezar la carrera!</button>
     </div>
@@ -308,6 +346,38 @@
 </div>
 <div id="toast"></div>
 
+<div id="rpInfo" hidden><b>● REPETICIÓN</b><span id="rpName"></span></div>
+<div id="replayBar" hidden>
+  <button id="rpPlay" aria-label="Pausar o seguir">⏸</button>
+  <button id="rpSpeed" aria-label="Velocidad de la repetición">1×</button>
+  <div class="grow"><span id="rpTime">0:00</span><input id="rpSeek" type="range" min="0" max="1000" value="0" aria-label="Momento de la repetición"><span id="rpDur">0:00</span></div>
+  <button id="rpPrev" aria-label="Piloto anterior">◀</button>
+  <button id="rpCam" aria-label="Cámara">🎬 Auto</button>
+  <button id="rpNext" aria-label="Piloto siguiente">▶</button>
+  <button id="rpPhoto" aria-label="Modo foto">📷</button>
+  <button id="rpExit" class="primary">Salir</button>
+</div>
+<div id="photoBar" hidden>
+  <h3>📷 Modo foto</h3>
+  <p class="hint" style="margin:0 0 6px">Arrastra para girar alrededor del jet; la rueda acerca y aleja.</p>
+  <label>Distancia <input id="phDist" type="range" min="4" max="120" step="1" value="18"></label>
+  <label>Altura <input id="phPitch" type="range" min="-80" max="85" step="1" value="12"></label>
+  <label>Giro <input id="phYaw" type="range" min="-180" max="180" step="1" value="150"></label>
+  <label>Inclinar <input id="phRoll" type="range" min="-45" max="45" step="1" value="0"></label>
+  <label>Zoom <input id="phFov" type="range" min="15" max="100" step="1" value="55"></label>
+  <label>Filtro <select id="phFilter">
+    <option value="none">Ninguno</option><option value="calido">Cálido</option><option value="frio">Frío</option>
+    <option value="sueno">Sueño</option><option value="bn">Blanco y negro</option><option value="sepia">Sepia</option><option value="cine">Cine</option>
+  </select></label>
+  <label id="phDofRow">Desenfoque del fondo <input id="phDof" type="range" min="0" max="1" step="0.05" value="0"></label>
+  <label>Viñeta <input id="phVig" type="range" min="0" max="1" step="0.05" value="0.3"></label>
+  <label>Marca «Jettism» <input id="phMark" type="checkbox" checked></label>
+  <label>Ver el jet <select id="phTarget"></select></label>
+  <div class="row"><button id="phSave" class="primary">Guardar foto</button></div>
+  <div class="row" style="margin-bottom:0"><button id="phHide">Ocultar panel</button><button id="phExit">Salir</button></div>
+</div>
+<button id="photoHide" hidden>Mostrar panel</button>
+
 <div id="hud" hidden>
   <div id="tl" class="sh"><div id="lap"></div><div id="time"></div><div id="lapTime"></div><div id="best"></div></div>
   <div id="tr" class="sh"><small>ESTILO</small><div id="style">0</div><div id="chain"></div><div id="chainTrack"><div id="chainBar"></div></div><ol id="standings"></ol></div>
@@ -326,6 +396,9 @@
     <div id="turboLbl">TURBO</div>
   </div>
   <div id="helpLine" class="sh"></div>
+  <div id="itemBox" hidden><span id="itemIcon"></span><div><b id="itemName"></b><small id="itemHint"></small></div></div>
+  <div id="missileWarn" class="sh" hidden>⚠ ¡MISIL!</div>
+  <div id="lockMark" hidden></div>
 </div>
 <div id="warn"></div>
 
@@ -337,6 +410,8 @@
   <button data-btn="brake">FRENO</button>
   <button data-btn="cam">CÁM</button>
   <button data-btn="smoke">HUMO</button>
+  <button data-btn="item" hidden>OBJETO</button>
+  <button data-btn="item2" hidden>OBJETO 2</button>
   <button data-btn="pause">❚❚</button>
 </div>
 

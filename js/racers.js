@@ -20,16 +20,16 @@ export const DIFFICULTY = {
 
 export class Racer {
   // cfg: configuración del hangar (piezas, pintura, calcomanías…); las piezas cambian las estadísticas del jet
-  constructor(scene, track, { id, name, cfg, bot = false, owned = false, me = false, laps = 3, diff = 'normal' }) {
-    Object.assign(this, { id, name, bot, owned, me, scene });
+  constructor(scene, track, { id, name, cfg, bot = false, owned = false, me = false, laps = 3, diff = 'normal', dir = 1 }) {
+    Object.assign(this, { id, name, bot, owned, me, scene, dir, L: track.length });
     const D = DIFFICULTY[diff] || DIFFICULTY.normal;
     this.cfg = sanitizeCfg(cfg);
     this.color = this.cfg.paint.c1;
     const stats = statMultipliers(this.cfg);
     if (bot) stats.speed *= D.speed;
     this.jet = new Jet(stats);
-    this.race = new Race(track, laps);
-    this.ap = bot ? new Autopilot(track, { skill: D.skill }) : null;
+    this.race = new Race(track, laps, dir);
+    this.ap = bot ? new Autopilot(track, { skill: D.skill, dir }) : null;
     this.style = new Style();
     this.manual = new ManualDetector();
     this.ctl = { pitch: 0, roll: 0, yaw: 0, throttle: 0, boost: false, draft: 0, aimed: false, trick: null };
@@ -42,12 +42,16 @@ export class Racer {
     this.view = { p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), boost: false, alive: owned, smoke: false, throttle: 0.5 };
     this.buf = []; this.finishTime = null; this.lap = 0; this.s = 0;
     this.tricks = []; this.draftT = 0; this.voice = null; this.smokeOn = false; this.bumpT = 0;
+    // objetos y combate
+    this.item = null; this.shieldT = 0; this.kills = 0; this.deaths = 0; this.ammo = 0; this.reloadT = 0; this.lock = null; this.lockT = 0;
   }
 
   // Para la clasificación: los que han terminado van primero, por tiempo
-  progress(L) {
+  progress() {
     if (this.finishTime != null) return 1e9 - this.finishTime;
-    return this.owned ? this.race.lap * L + this.race.s : this.lap * L + this.s;
+    if (this.owned) return this.race.progress();
+    const L = this.L;
+    return this.lap * L + (this.dir > 0 ? this.s : (L - this.s) % L);
   }
 
   // Coloca el jet aparcado (o volando) y deja la pose de dibujo al día
@@ -61,16 +65,17 @@ export class Racer {
     if (this.ap) this.ap.hint = -1;
   }
 
-  // Estado compacto para la red: [id, pos, quat, vel, banderas, vuelta, s, gas]
+  // Estado compacto para la red: [id, pos, quat, vel, banderas, vuelta, s, gas, estilo, derribos, caídas]
   pack() {
     const j = this.jet, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
-    const flags = (j.alive ? 1 : 0) | (j.boosting ? 2 : 0) | (this.smokeOn ? 4 : 0);
-    return [this.id, r2(j.pos.x), r2(j.pos.y), r2(j.pos.z), r3(j.q.x), r3(j.q.y), r3(j.q.z), r3(j.q.w), r2(j.vel.x), r2(j.vel.y), r2(j.vel.z), flags, this.race.lap, Math.round(this.race.s), r2(this.view.throttle)];
+    const flags = (j.alive ? 1 : 0) | (j.boosting ? 2 : 0) | (this.smokeOn ? 4 : 0) | (this.shieldT > 0 ? 8 : 0);
+    return [this.id, r2(j.pos.x), r2(j.pos.y), r2(j.pos.z), r3(j.q.x), r3(j.q.y), r3(j.q.z), r3(j.q.w), r2(j.vel.x), r2(j.vel.y), r2(j.vel.z), flags, this.race.lap, Math.round(this.race.s), r2(this.view.throttle), this.style.total, this.kills, this.deaths];
   }
   receive(e, now) {
     this.buf.push({ t: now, p: new THREE.Vector3(e[1], e[2], e[3]), q: new THREE.Quaternion(e[4], e[5], e[6], e[7]), v: new THREE.Vector3(e[8], e[9], e[10]), flags: e[11], lap: e[12], s: e[13], throttle: e[14] ?? 0.5 });
     if (this.buf.length > 14) this.buf.shift();
     this.lap = e[12]; this.s = e[13];
+    if (e[15] != null) { this.styleTotal = e[15]; this.kills = e[16] || 0; this.deaths = e[17] || 0; }
   }
   // Dibuja a los demás con 120 ms de retraso, interpolando entre los dos estados que lo rodean
   interpolate(now) {
@@ -90,7 +95,7 @@ export class Racer {
     }
     v.v.copy(l.v);
     const wasAlive = v.alive;
-    v.alive = !!(l.flags & 1); v.boost = !!(l.flags & 2); v.smoke = !!(l.flags & 4); v.throttle = l.throttle;
+    v.alive = !!(l.flags & 1); v.boost = !!(l.flags & 2); v.smoke = !!(l.flags & 4); v.shield = !!(l.flags & 8); v.throttle = l.throttle;
     if (!wasAlive && v.alive) this.buf = [l];
   }
 

@@ -6,6 +6,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { Water } from 'three/addons/objects/Water.js';
 import { LAKE } from './track.js';
@@ -221,11 +222,15 @@ export function createWorld(renderer, qualityName) {
   scene.add(shore);
 
   // Posprocesado: bloom ligero, FXAA, viñeta, saturación y desenfoque radial con la velocidad
-  let composer = null, fxaa = null, finalPass = null;
+  let composer = null, fxaa = null, finalPass = null, dof = null;
   if (Q.post) {
     const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: Q.msaa });
     composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, camera));
+    // profundidad de campo: solo en el modo foto (vuelve a dibujar la escena para sacar la profundidad)
+    dof = new BokehPass(scene, camera, { focus: 20, aperture: 0, maxblur: 0.012 });
+    dof.enabled = false;
+    composer.addPass(dof);
     composer.addPass(new LightBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.32, 0.5, 1.0));
     composer.addPass(new OutputPass());
     if (!Q.msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
@@ -268,6 +273,15 @@ export function createWorld(renderer, qualityName) {
     render() { composer ? composer.render() : renderer.render(scene, camera); },
     setPixelRatio(pr) { renderer.setPixelRatio(pr); resize(); },
     setBlur(k) { if (finalPass && Q.blur) finalPass.uniforms.uBlur.value = k; },
+    // amount 0..1; focus: distancia en metros a lo que sale nítido
+    setDof(amount, focus) {
+      if (!dof) return false;
+      dof.enabled = amount > 0.01;
+      dof.uniforms.focus.value = focus;
+      dof.uniforms.aperture.value = amount * 0.0006;
+      dof.uniforms.maxblur.value = 0.004 + amount * 0.012;
+      return true;
+    },
     update(dt, t) {
       skyMat.uniforms.uTime.value = t;
       if (water) water.material.uniforms.time.value += dt * 0.6;

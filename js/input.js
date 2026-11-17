@@ -22,6 +22,9 @@ export class Input {
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
+    // clic izquierdo: misil u objeto; derecho: objeto (solo con el ratón capturado, en pleno vuelo)
+    addEventListener('mousedown', e => { if (this.locked) { this.edges.add('Mouse' + e.button); this.device = 'keyboard'; } });
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
     addEventListener('mousemove', e => {
       if (!this.locked) return;
       this.mdx += e.movementX; this.mdy += e.movementY;
@@ -134,6 +137,7 @@ export class Input {
     st.dirCurrent = this.keyDirHeld();
     st.cam = e('KeyC'); st.lookBack = k('KeyV'); st.pause = e('Escape') || e('KeyP'); st.respawn = e('KeyR');
     st.smoke = k('KeyH');
+    st.fire = e('KeyF') || e('Mouse0'); st.use2 = e('KeyG') || e('Mouse2');
     st.any = this.edges.size > 0;
     this.edges.clear();
 
@@ -151,8 +155,11 @@ export class Input {
         st.throttle = bv(7) - bv(6);
         st.boost = st.boost || b(0);
         st.trickHeld = st.trickHeld || b(2); st.trickDown = st.trickDown || (b(2) && !was(2));
-        st.cam = st.cam || (b(3) && !was(3)) || (b(11) && !was(11));
-        st.lookBack = st.lookBack || b(1);
+        // Y: objeto (segundo) · B: misil u objeto · stick derecho pulsado: cámara · stick izquierdo pulsado: mirar atrás
+        st.cam = st.cam || (b(11) && !was(11));
+        st.use2 = st.use2 || (b(3) && !was(3));
+        st.fire = st.fire || (b(1) && !was(1));
+        st.lookBack = st.lookBack || b(10);
         st.pause = st.pause || (b(9) && !was(9));
         st.respawn = st.respawn || (b(8) && !was(8));
         st.smoke = st.smoke || b(13);
@@ -179,6 +186,7 @@ export class Input {
       st.trickHeld = T.buttons.has('trick'); st.trickDown = T.edges.has('trick');
       st.cam = T.edges.has('cam'); st.pause = T.edges.has('pause');
       st.smoke = T.buttons.has('smoke');
+      st.fire = T.edges.has('item'); st.use2 = T.edges.has('item2');
       const d = this.stickDir(sx, sy * inv, this.touchDir);
       if (d && d !== this.touchDir) st.dirs.push(d);
       this.touchDir = d;
