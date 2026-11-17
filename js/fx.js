@@ -110,6 +110,65 @@ class Trail {
   }
 }
 
+// Humo de colores para escribir en el cielo: dura 20 s y se va ensanchando
+export class SkySmoke {
+  constructor(scene, color, n = 260) {
+    this.n = n; this.pts = []; this.acc = 0; this.life = 20;
+    this.pos = new Float32Array(n * 2 * 3); this.alpha = new Float32Array(n * 2);
+    const idx = [];
+    for (let i = 0; i < n - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setIndex(idx);
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) } },
+      vertexShader: `attribute float alpha; varying float vA;
+        void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = alpha * smoothstep(4.0, 22.0, -mv.z); gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: 'uniform vec3 uColor; varying float vA; void main() { gl_FragColor = vec4(uColor, vA); }',
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+  }
+  setColor(c) { this.mat.uniforms.uColor.value.set(c); }
+  clear() { this.pts.length = 0; this.mesh.visible = false; }
+  // on: si está echando humo; los huecos cortan la cinta
+  push(p, on, now, dt) {
+    this.acc += dt;
+    if (this.acc < 0.07) return;
+    this.acc = 0;
+    const last = this.pts[0];
+    if (!on && (!last || !last.on)) return;
+    this.pts.unshift({ x: p.x, y: p.y, z: p.z, t: now, on });
+    if (this.pts.length > this.n) this.pts.pop();
+  }
+  update(now, cam) {
+    const P = this.pts;
+    while (P.length && now - P[P.length - 1].t > this.life) P.pop();
+    this.mesh.visible = P.length > 1;
+    if (!this.mesh.visible) return;
+    const tx = new THREE.Vector3(), side = new THREE.Vector3(), to = new THREE.Vector3();
+    for (let i = 0; i < this.n; i++) {
+      const k = i * 6, j = Math.min(i, P.length - 1), q = P[j];
+      const a = P[Math.max(0, j - 1)], b = P[Math.min(P.length - 1, j + 1)];
+      tx.set(a.x - b.x, a.y - b.y, a.z - b.z);
+      to.set(cam.x - q.x, cam.y - q.y, cam.z - q.z);
+      const age = now - q.t;
+      side.crossVectors(tx, to).normalize().multiplyScalar(1 + age * 0.35);
+      this.pos[k] = q.x + side.x; this.pos[k + 1] = q.y + side.y; this.pos[k + 2] = q.z + side.z;
+      this.pos[k + 3] = q.x - side.x; this.pos[k + 4] = q.y - side.y; this.pos[k + 5] = q.z - side.z;
+      const al = i >= P.length || !q.on ? 0 : 0.85 * (1 - age / this.life) * Math.min(1, i / 2);
+      this.alpha[i * 2] = this.alpha[i * 2 + 1] = al;
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.attributes.alpha.needsUpdate = true;
+  }
+}
+
 export class FX {
   constructor(scene, camera, quality) {
     const tex = dotTexture();

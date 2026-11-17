@@ -1,6 +1,7 @@
 // El jet, modelado por código a partir de piezas (en la parte 4 cada pieza tendrá variantes).
 // El morro apunta a −Z, como en la física.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const DEFAULT_LOOK = { c1: '#d62839', c2: '#f3efe6', c3: '#1c2230', glow: '#3ee8ff', flame: '#ff7a2e', helmet: '#f3efe6' };
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -83,7 +84,30 @@ export function buildPilot(look = DEFAULT_LOOK) {
   return p;
 }
 
-export function buildJet(look = DEFAULT_LOOK, { ghost = false } = {}) {
+// Une todas las piezas que comparten material en una sola malla (para los jets de los demás)
+function mergeByMaterial(g, keep) {
+  g.updateMatrixWorld(true);
+  const groups = new Map();
+  g.traverse(o => {
+    if (!o.isMesh || keep.has(o)) return;
+    const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    geo.applyMatrix4(o.matrixWorld);
+    for (const k of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(k)) geo.deleteAttribute(k);
+    if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+    geo.clearGroups();
+    if (!groups.has(o.material)) groups.set(o.material, []);
+    groups.get(o.material).push(geo);
+  });
+  for (const c of [...g.children]) g.remove(c);
+  for (const [mat, geos] of groups) {
+    const m = new THREE.Mesh(mergeGeometries(geos), mat);
+    m.castShadow = true;
+    g.add(m);
+  }
+  for (const k of keep) g.add(k);
+}
+
+export function buildJet(look = DEFAULT_LOOK, { ghost = false, lite = false } = {}) {
   const g = new THREE.Group();
   // pintura metalizada con material estándar (el barniz «physical» costaba demasiados fps en la gráfica integrada)
   const paint = c => new THREE.MeshStandardMaterial({ color: c, metalness: 0.45, roughness: 0.24, envMapIntensity: 1.3 });
@@ -173,6 +197,7 @@ export function buildJet(look = DEFAULT_LOOK, { ghost = false } = {}) {
     const gm = new THREE.MeshBasicMaterial({ color: 0x7fe9ff, transparent: true, opacity: 0.28, depthWrite: false });
     g.traverse(o => { if (o.isMesh) { o.material = gm; o.castShadow = false; } });
   }
+  if (lite && !ghost) mergeByMaterial(g, new Set([...flames, ...cores, strobe]));
 
   let time = 0;
   return {

@@ -1,5 +1,44 @@
 // Sonido sintetizado con Web Audio: turbina, rugido, postcombustión, viento, estampido sónico,
 // roces, piruetas, anillos, explosión y paracaídas. Sin archivos de audio.
+
+// Motor de otro jet, en 3D y con efecto Doppler hecho a mano (Web Audio ya no lo trae)
+const C_SOUND = 343;
+export class RemoteVoice {
+  constructor(sound) {
+    const ctx = this.ctx = sound.ctx;
+    this.osc = ctx.createOscillator(); this.osc.type = 'sawtooth'; this.osc.frequency.value = 160;
+    this.osc2 = ctx.createOscillator(); this.osc2.type = 'sine'; this.osc2.frequency.value = 900;
+    const o2g = ctx.createGain(); o2g.gain.value = 0.25;
+    this.noise = ctx.createBufferSource(); this.noise.buffer = sound.brown; this.noise.loop = true;
+    this.filter = ctx.createBiquadFilter(); this.filter.type = 'lowpass'; this.filter.frequency.value = 900;
+    this.gain = ctx.createGain(); this.gain.gain.value = 0;
+    this.panner = ctx.createPanner();
+    Object.assign(this.panner, { panningModel: 'equalpower', distanceModel: 'inverse', refDistance: 35, maxDistance: 3000, rolloffFactor: 1.3 });
+    this.osc.connect(this.filter); this.osc2.connect(o2g).connect(this.filter); this.noise.connect(this.filter);
+    this.filter.connect(this.gain).connect(this.panner).connect(sound.master);
+    this.osc.start(); this.osc2.start(); this.noise.start(0, Math.random());
+  }
+  // src y lis: { p, v } posición y velocidad de la fuente y del oyente
+  update(src, lis, boost, on) {
+    const t = this.ctx.currentTime;
+    const dx = lis.p.x - src.p.x, dy = lis.p.y - src.p.y, dz = lis.p.z - src.p.z, d = Math.hypot(dx, dy, dz) || 1;
+    const ux = dx / d, uy = dy / d, uz = dz / d;
+    const vs = src.v.x * ux + src.v.y * uy + src.v.z * uz, vl = lis.v.x * ux + lis.v.y * uy + lis.v.z * uz;
+    const k = Math.min(2.2, Math.max(0.5, (C_SOUND - vl) / (C_SOUND - vs)));
+    const speed = Math.hypot(src.v.x, src.v.y, src.v.z), base = 120 + speed * 0.9 + (boost ? 60 : 0);
+    this.osc.frequency.setTargetAtTime(base * k, t, 0.05);
+    this.osc2.frequency.setTargetAtTime((700 + speed * 4) * k, t, 0.05);
+    this.filter.frequency.setTargetAtTime((boost ? 1800 : 1100) * k, t, 0.05);
+    this.gain.gain.setTargetAtTime(on ? (boost ? 0.55 : 0.38) : 0, t, 0.08);
+    const P = this.panner;
+    if (P.positionX) { P.positionX.value = src.p.x; P.positionY.value = src.p.y; P.positionZ.value = src.p.z; } else P.setPosition(src.p.x, src.p.y, src.p.z);
+  }
+  dispose() {
+    try { this.osc.stop(); this.osc2.stop(); this.noise.stop(); } catch { /* ya parado */ }
+    this.panner.disconnect();
+  }
+}
+
 export class Sound {
   constructor() { this.volume = 0.6; }
 
@@ -48,6 +87,17 @@ export class Sound {
     this.windF = ctx.createBiquadFilter(); this.windF.type = 'bandpass'; this.windF.Q.value = 0.7; this.windF.frequency.value = 600;
     this.wind = ctx.createGain(); this.wind.gain.value = 0;
     loop(white).connect(this.windF).connect(this.wind).connect(this.master);
+  }
+
+  // Oyente en la cámara (para el sonido 3D de los demás jets)
+  setListener(p, fwd, up) {
+    if (!this.ctx) return;
+    const L = this.ctx.listener;
+    if (L.positionX) {
+      L.positionX.value = p.x; L.positionY.value = p.y; L.positionZ.value = p.z;
+      L.forwardX.value = fwd.x; L.forwardY.value = fwd.y; L.forwardZ.value = fwd.z;
+      L.upX.value = up.x; L.upY.value = up.y; L.upZ.value = up.z;
+    } else { L.setPosition(p.x, p.y, p.z); L.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z); }
   }
 
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); }

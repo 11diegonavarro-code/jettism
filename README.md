@@ -4,11 +4,18 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
 
 **Jugar:** https://11diegonavarro-code.github.io/jettism/
 
-## Qué hay (partes 1 y 2 de 6)
+## Qué hay (partes 1, 2 y 3 de 6)
 
 - Vuelo arcade con derrape aéreo, turbo, roces y estampido sónico.
 - Diez piruetas, por combo (Espacio + dirección) o hechas a mano, con cadenas de estilo.
 - Contrarreloj de 3 vueltas con fantasma de tu mejor vuelta, y vuelo libre.
+- **Carreras de hasta 8 jets:** contra bots (fáciles, normales o difíciles) o online con amigos. La sala se crea con un enlace y se espera volando juntos por el mapa.
+- **En carrera con más jets:**
+  - rebufo: detrás de otro jet vas más rápido y cargas turbo;
+  - formaciones: la misma pirueta a la vez puntúa ×2;
+  - humo de colores para escribir en el cielo;
+  - empujones entre jets;
+  - sonido 3D de los demás motores con efecto Doppler.
 - Mapa «Desierto de los sueños»:
   - **Recorrido:** bosque de torres de cera, acantilado de cajones con un atajo por dentro de un cajón gigante, escaleras que giran en la horquilla y péndulos colgados de las nubes.
   - **Obstáculos:** una puerta que lleva a la noche, puentes de papel que se pliegan, una ballena de nubes y un tren de vapor sobre el lago espejo.
@@ -17,6 +24,6 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
 
 ## Técnica
 
-HTML y módulos JS sin paso de build, three.js 0.160 desde jsDelivr. La física, el recorrido y el piloto automático son JS puro y se pueden simular en Node.
+HTML y módulos JS sin paso de build, three.js 0.160 desde jsDelivr. El online usa PeerJS (conexión directa entre navegadores) y, si la red la bloquea, servidores MQTT públicos. El anfitrión lleva los bots y el reloj común. La física, el recorrido y el piloto automático son JS puro y se pueden simular en Node.
 
 Para probar en local: `python -m http.server 8767` en esta carpeta y abrir `http://127.0.0.1:8767/`. Con `?debug` se expone `window.jetDebug`.

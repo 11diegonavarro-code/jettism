@@ -133,6 +133,7 @@ export class Input {
     st.trickDown = e('Space'); st.trickHeld = k('Space');
     st.dirCurrent = this.keyDirHeld();
     st.cam = e('KeyC'); st.lookBack = k('KeyV'); st.pause = e('Escape') || e('KeyP'); st.respawn = e('KeyR');
+    st.smoke = k('KeyH');
     st.any = this.edges.size > 0;
     this.edges.clear();
 
@@ -154,6 +155,7 @@ export class Input {
         st.lookBack = st.lookBack || b(1);
         st.pause = st.pause || (b(9) && !was(9));
         st.respawn = st.respawn || (b(8) && !was(8));
+        st.smoke = st.smoke || b(13);
         st.lookX = rx; st.lookY = ry;
         const d = this.stickDir(lx, ly * inv, this.padDir);
         if (d && d !== this.padDir) st.dirs.push(d);
@@ -176,6 +178,7 @@ export class Input {
       st.boost = T.buttons.has('boost');
       st.trickHeld = T.buttons.has('trick'); st.trickDown = T.edges.has('trick');
       st.cam = T.edges.has('cam'); st.pause = T.edges.has('pause');
+      st.smoke = T.buttons.has('smoke');
       const d = this.stickDir(sx, sy * inv, this.touchDir);
       if (d && d !== this.touchDir) st.dirs.push(d);
       this.touchDir = d;

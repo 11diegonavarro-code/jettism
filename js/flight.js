@@ -98,6 +98,8 @@ export class Jet {
       target = F.boost * st.speed; rate = 1.3 * st.accel;
       this.turbo = Math.max(0, this.turbo - (F.boostDrain / st.turbo) * dt);
     }
+    // rebufo: detrás de otro jet el aire empuja menos (0..1)
+    if (ctl.draft > 0) { target += 16 * ctl.draft; rate = Math.max(rate, 0.9); }
     vf += (target - vf) * damp(rate, dt);
     vf -= 9.81 * 0.55 * this.fwd.y * dt;     // subir frena y picar acelera
     vf -= Math.abs(this.w.x) * 1.6 * dt;     // tirar fuerte cuesta velocidad

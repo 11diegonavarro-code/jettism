@@ -18,8 +18,8 @@ export class HUD {
   // Solo toca el DOM si el texto cambia
   text(id, v) { if (this.last[id] !== v) { this.last[id] = v; this.el[id].textContent = v; } }
 
-  setRace({ lap, laps, time, lapTime, best, free }) {
-    this.text('lap', free ? 'VUELO LIBRE' : `VUELTA ${Math.min(lap || 1, laps)}/${laps}`);
+  setRace({ lap, laps, time, lapTime, best, free, label }) {
+    this.text('lap', free ? label || 'VUELO LIBRE' : `VUELTA ${Math.min(lap || 1, laps)}/${laps}`);
     this.text('time', free ? fmtTime(lapTime) : fmtTime(time));
     this.text('lapTime', free ? '' : `Vuelta ${fmtTime(lapTime)}`);
     this.text('best', best ? `Mejor ${fmtTime(best)}` : '');

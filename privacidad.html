@@ -20,7 +20,7 @@
 <body>
 <main>
   <h1>Privacidad</h1>
-  <p>Jettism es un juego gratuito sin anuncios ni pagos. No pide registro y no recoge datos personales.</p>
+  <p>Jettism es un juego gratuito sin anuncios ni pagos. No pide registro y no recoge datos personales. Jugando solo no se envía nada; en el modo online, lo justo para jugar (ver abajo).</p>
 
   <h2>Qué se guarda y dónde</h2>
   <p>Tus ajustes (controles, ayudas, volumen, gráficos), el nombre de piloto que escribas, tus récords y el fantasma de tu mejor vuelta se guardan solo en el almacenamiento local de tu navegador. No se envían a ningún sitio y nadie más puede verlos. Para borrarlos, elimina los datos de este sitio en la configuración del navegador.</p>
@@ -32,11 +32,18 @@
   <p>Para funcionar, el navegador se conecta a dos servicios que, como cualquier servidor web, ven tu dirección IP al servirte los archivos:</p>
   <ul>
     <li><b>GitHub Pages</b>, que aloja la web. <a href="https://docs.github.com/es/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">Declaración de privacidad de GitHub</a>.</li>
-    <li><b>jsDelivr</b>, desde donde se descarga el motor 3D three.js. <a href="https://www.jsdelivr.com/terms/privacy-policy-jsdelivr-net" rel="noopener">Política de privacidad de jsDelivr</a>.</li>
+    <li><b>jsDelivr</b>, desde donde se descargan el motor 3D three.js y las librerías de conexión (PeerJS y MQTT). <a href="https://www.jsdelivr.com/terms/privacy-policy-jsdelivr-net" rel="noopener">Política de privacidad de jsDelivr</a>.</li>
   </ul>
 
-  <h2>Próximas versiones</h2>
-  <p>Cuando llegue el modo online para jugar con amigos, la conexión entre jugadores pasará por servidores públicos de conexión. Esta página se actualizará antes de que eso ocurra.</p>
+  <h2>Jugar online con amigos</h2>
+  <p>Solo si creas una sala o entras en una, el juego envía a los demás jugadores de esa sala tu nombre de piloto, el color de tu jet y tu posición en el aire mientras jugáis. No se guarda nada en ningún servidor.</p>
+  <p>Para que los navegadores se encuentren y se conecten, se usan estos servicios públicos, que ven tu dirección IP:</p>
+  <ul>
+    <li><b>PeerJS</b> (servidor gratuito de conexión de peerjs.com), para la conexión directa entre navegadores.</li>
+    <li><b>Servidores STUN</b> de Google y Twilio, que solo ayudan a encontrar la ruta entre los dos navegadores.</li>
+    <li>Si la red bloquea la conexión directa, los mensajes de la sala pasan por <b>servidores MQTT públicos</b> (HiveMQ, EMQX y Mosquitto). Cualquiera que conozca el código de la sala podría leerlos, así que no escribas datos personales en tu nombre de piloto.</li>
+  </ul>
+  <p>El código de la sala va en el enlace que compartes con tus amigos. Al cerrar la pestaña dejas la sala.</p>
 
   <a class="back" href="./">Volver al juego</a>
 </main>
