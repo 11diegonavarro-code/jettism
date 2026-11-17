@@ -114,7 +114,7 @@ const lin = (a, b, ta, tb, t) => {
 const _t1 = new V3(), _t2 = new V3(), _t3 = new V3(), _d = new V3();
 
 // ---------- Funciones de distancia con signo ----------
-const _p = new V3();
+const _p = new V3(), _hh = new V3();
 const boxD = (lx, ly, lz, h) => {
   const qx = Math.abs(lx) - h.x, qy = Math.abs(ly) - h.y, qz = Math.abs(lz) - h.z;
   return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0);
@@ -136,6 +136,15 @@ function sdf(c, p) {
       _d.subVectors(p, c.c);
       return boxD(_d.dot(c.ax), _d.dot(c.ay), _d.dot(c.az), c.h);
     }
+    case 'archwall': { // muro (girado en Y) con un hueco: rectángulo de ancho 2·hw y alto hh + medio círculo encima
+      const dx = p.x - c.c.x, dz = p.z - c.c.z, co = Math.cos(c.yaw), si = Math.sin(c.yaw);
+      const lx = dx * co - dz * si, ly = p.y - c.c.y, lz = dx * si + dz * co;
+      const wall = boxD(lx, ly, lz, c.h);
+      const hy = ly - c.hole.y; // y del hueco: 0 en la base del hueco
+      const rect = boxD(lx, hy - c.hole.hh / 2, 0, _hh.set(c.hole.hw, c.hole.hh / 2, 1e3));
+      const circ = Math.hypot(lx, hy - c.hole.hh) - c.hole.hw; // círculo entero: su mitad de abajo cae dentro del rectángulo
+      return Math.max(wall, -Math.min(rect, circ));
+    }
     case 'ellipsoid': {
       const dx = p.x - c.c.x, dz = p.z - c.c.z, co = Math.cos(c.yaw), si = Math.sin(c.yaw);
       const lx = dx * co - dz * si, lz = dx * si + dz * co, ly = p.y - c.c.y;
@@ -151,16 +160,26 @@ const yawFromRight = R => Math.atan2(-R.z, R.x);
 // Caja alineada con los ejes a partir de sus esquinas
 const boxFrom = (x0, y0, z0, x1, y1, z1) => ({ type: 'box', c: new V3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), h: new V3(Math.abs(x1 - x0) / 2, Math.abs(y1 - y0) / 2, Math.abs(z1 - z0) / 2), yaw: 0 });
 
-export { Spline };
+export { Spline, sdf, yawFromRight, boxFrom };
+
+// El desierto como mapa por defecto (los demás mapas están en js/maps/)
+export const DESIERTO = { id: 'desierto', course: null, build: T => buildDesierto(T), ownGates: true };
 
 export class Track {
-  constructor(seed = 7) {
-    this.spline = new Spline(CP);
-    this.length = this.spline.length;
+  constructor(map = DESIERTO) { this.load(map); }
+
+  // Carga un mapa: su recorrido, sus colisionadores, obstáculos, viento y térmicas
+  load(map) {
+    this.map = map;
     this.statics = []; this.movers = []; this.decor = []; this.grid = new Map();
     this.gates = []; this.boostRings = []; this.thermals = []; this.windZones = [];
-    this.rand = rng(seed);
-    this.build();
+    this.rand = rng(map.seed || 7);
+    this.uid = 1;
+    const course = map.course || BASE_COURSE;
+    this.spline = new Spline(course.gates);
+    this.length = this.spline.length;
+    if (!map.ownGates) this.makeGates(course);
+    map.build(this);
     for (const c of this.statics) this.insert(c);
     this.movers.forEach((m, i) => m.cols.forEach(c => { c.grp = 'M' + i; }));
     this.update(0);
@@ -168,14 +187,8 @@ export class Track {
     this.base = { spline: this.spline, length: this.length, gates: this.gates, boostRings: this.boostRings };
     this.custom = null;
   }
-
-  // Circuito propio (o null para el original): cambia solo las puertas y los anillos de turbo; el mapa y sus obstáculos no se mueven
-  setCourse(course) {
-    if (!course) {
-      Object.assign(this, { spline: this.base.spline, length: this.base.length, gates: this.base.gates, boostRings: this.base.boostRings, custom: null });
-      return;
-    }
-    const S = new Spline(course.gates.map(g => [g[0], g[1], g[2]]));
+  // Puertas y anillos de turbo a partir de un circuito [x, y, z, tamaño] y [tramo, fracción]
+  makeGates(course, S = this.spline) {
     const cp = S.cpS, L = S.length;
     const gates = course.gates.map((g, i) => {
       const z = GATE_SIZES[g[3]] || GATE_SIZES.m;
@@ -185,7 +198,23 @@ export class Track {
       const a = cp[i], b = i + 1 < cp.length ? cp[i + 1] : L, s = a + (b - a) * f;
       return { s, p: S.pointAt(s), t: S.tangentAt(s), r: 7 };
     });
-    Object.assign(this, { spline: S, length: L, gates, boostRings, custom: course });
+    if (S === this.spline) { this.gates = gates; this.boostRings = boostRings; }
+    return { gates, boostRings };
+  }
+  // Ayudas para construir mapas: etiqueta un colisionador, lo añade como fijo, añade un obstáculo móvil
+  tag(c, kind) { c.kind = kind; c.uid = this.uid++; return c; }
+  stat(c, kind, grp) { this.tag(c, kind); if (grp) c.grp = grp; this.statics.push(c); return c; }
+  mover(m) { this.movers.push(m); return m; }
+
+  // Circuito propio (o null para el original): cambia solo las puertas y los anillos de turbo; el mapa y sus obstáculos no se mueven
+  setCourse(course) {
+    if (!course) {
+      Object.assign(this, { spline: this.base.spline, length: this.base.length, gates: this.base.gates, boostRings: this.base.boostRings, custom: null });
+      return;
+    }
+    const S = new Spline(course.gates.map(g => [g[0], g[1], g[2]]));
+    const { gates, boostRings } = this.makeGates(course, S);
+    Object.assign(this, { spline: S, length: S.length, gates, boostRings, custom: course });
   }
 
   insert(c) {
@@ -200,232 +229,8 @@ export class Track {
 
   // s del principio de un tramo con nombre
   sOf(name, offset = 0) { const S = this.base?.spline || this.spline; return S.wrap(S.cpS[GATE[name]] + offset); }
+  // groundY: altura del suelo (el de cada mapa; 0 por defecto)
 
-  build() {
-    const S = this.spline, R = this.rand, cp = S.cpS;
-    let uid = 1;
-    const tag = (c, kind) => { c.kind = kind; c.uid = uid++; return c; };
-    const stat = (c, kind, grp) => { tag(c, kind); if (grp) c.grp = grp; this.statics.push(c); return c; };
-    const segS = (i, f) => cp[i] + ((i + 1 < cp.length ? cp[i + 1] : this.length) - cp[i]) * f;
-
-    // Puertas (anillos) en cada punto de control. La del contrafuerte acepta también el atajo del cajón.
-    CP.forEach((_, i) => {
-      const P = S.pointAt(cp[i]), T = S.tangentAt(cp[i]);
-      const ring = i === 0 ? 30 : i === GATE.horquilla ? 24 : 18;
-      this.gates.push({ i, s: cp[i], p: P, t: T, ring, cp: i === GATE.contrafuerte ? 125 : 75 });
-    });
-    // Anillos de turbo pequeños
-    for (const [i, f] of [[GATE.salida, 0.55], [GATE.contrafuerte, 0.62], [GATE.horquilla + 1, 0.4], [GATE.lago - 1, 0.5]]) {
-      const s = segS(i, f);
-      this.boostRings.push({ s, p: S.pointAt(s), t: S.tangentAt(s), r: 7 });
-    }
-
-    // Plataforma de salida, flotando sobre el lago con un peñasco debajo
-    const plat = stat({ type: 'box', c: new V3(0, 40, 75), h: new V3(32, 4, 60), yaw: 0 }, 'platform');
-    stat({ type: 'capsule', a: new V3(0, 14, 75), b: new V3(0, 30, 75), r: 26 }, 'platform');
-    this.decor.push({ kind: 'platform', col: plat });
-
-    // Bosque de torres: columnas finísimas que se curvan como velas derretidas
-    const towers = [];
-    const tryTower = (x, z, rad, H, bend, clearance) => {
-      for (const t of towers) if (Math.hypot(t.x - x, t.z - z) < t.rad + rad + 18) return false;
-      for (const p of S.pts) if (p.y < H + 20 && Math.hypot(p.x - x, p.z - z) < rad + clearance) return false;
-      const ang = R() * Math.PI * 2, dir = new V3(Math.cos(ang), 0, Math.sin(ang));
-      const pts = [];
-      for (let k = 0; k <= 4; k++) {
-        const h = (H + 30) * (k / 4), f = (k / 4) ** 2;
-        pts.push(new V3(x + dir.x * bend * f, -30 + h, z + dir.z * bend * f));
-      }
-      for (let k = 0; k < 4; k++) stat({ type: 'capsule', a: pts[k], b: pts[k + 1], r: rad }, 'tower', 'T' + towers.length);
-      towers.push({ x, z, rad });
-      this.decor.push({ kind: 'tower', pts, r: rad, H, drips: [0, 1, 2].map(() => ({ a: R() * Math.PI * 2, h: 0.72 + R() * 0.2, l: 0.6 + R() * 0.8 })) });
-      return true;
-    };
-    const s0 = cp[GATE.bosque] - 120, s1 = cp[GATE.acantilado] + 60;
-    let side = 1;
-    for (let s = s0; s < s1; s += 44) {
-      const f = S.frame(s);
-      side = -side;
-      const off = side * (26 + R() * 24), rad = 4 + R() * 3.5;
-      tryTower(f.P.x + f.R.x * off, f.P.z + f.R.z * off, rad, 190 + R() * 150, R() * 10, 21);
-      if (R() < 0.4) {
-        const off2 = -side * (28 + R() * 18), r2 = 4 + R() * 3;
-        tryTower(f.P.x + f.R.x * off2, f.P.z + f.R.z * off2, r2, 190 + R() * 150, R() * 10, 21);
-      }
-    }
-    for (let k = 0, tries = 0; k < 70 && tries < 900; tries++) {
-      const x = -560 + R() * 1150, z = -1760 + R() * 1500;
-      if (tryTower(x, z, 5 + R() * 6, 160 + R() * 200, 10 + R() * 35, 48)) k++;
-    }
-
-    // Acantilado (pared de roca) con cajones gigantes que se abren y se cierran
-    const cliff = stat({ type: 'box', c: new V3(850, 95, CLIFF_FACE_Z - 250), h: new V3(720, 145, 250), yaw: 0 }, 'cliff');
-    this.decor.push({ kind: 'cliff', col: cliff });
-    const B = BUTTRESS, Tn = B.tunnel, w = B.wood;
-    for (let k = 0; k < 11; k++) {
-      const x = 420 + k * 104 + (R() - 0.5) * 24;
-      if (x > B.x0 - 50 && x < B.x1 + 50) continue; // el contrafuerte ocupa ese trozo de pared
-      const { s } = S.nearest(new V3(x, 150, -1880));
-      const y = S.pointAt(s).y + (R() - 0.5) * 50;
-      const ww = 30 + R() * 12, hh = 15 + R() * 6, depth = 30, maxExt = 22 + R() * 10;
-      const period = 5 + R() * 2.5, phase = R() * Math.PI * 2;
-      const col = tag({ type: 'box', c: new V3(x, y, CLIFF_FACE_Z - depth), h: new V3(ww, hh, depth), yaw: 0 }, 'drawer');
-      this.movers.push({
-        kind: 'drawer', cols: [col], w: ww, hh, depth, x, y, ext: 0,
-        bound: { c: new V3(x, y, CLIFF_FACE_Z), r: Math.hypot(ww, hh, depth + maxExt) + 2 },
-        update(t) {
-          this.ext = maxExt * clamp(0.5 + 0.9 * Math.sin((2 * Math.PI * t) / period + phase), 0, 1);
-          col.c.z = CLIFF_FACE_Z - depth + this.ext;
-        },
-      });
-    }
-    // Contrafuerte con el cajón-túnel: cuatro bloques de roca alrededor del hueco y el cajón de madera que lo forra
-    const zIn = CLIFF_FACE_Z - 10;
-    const rock = [
-      boxFrom(B.x0, -50, zIn, B.x1, Tn.y0 - w, B.zOut),
-      boxFrom(B.x0, Tn.y1 + w, zIn, B.x1, 240, B.zOut),
-      boxFrom(B.x0, Tn.y0 - w, Tn.z1 + w, B.x1, Tn.y1 + w, B.zOut),
-      boxFrom(B.x0, Tn.y0 - w, zIn, B.x1, Tn.y1 + w, Tn.z0 - w),
-    ].map(c => stat(c, 'cliff'));
-    const X0 = B.x0 - B.over, X1 = B.x1 + B.over;
-    const wood = [
-      boxFrom(X0, Tn.y0 - w, Tn.z0 - w, X1, Tn.y0, Tn.z1 + w),
-      boxFrom(X0, Tn.y1, Tn.z0 - w, X1, Tn.y1 + w, Tn.z1 + w),
-      boxFrom(X0, Tn.y0, Tn.z0 - w, X1, Tn.y1, Tn.z0),
-      boxFrom(X0, Tn.y0, Tn.z1, X1, Tn.y1, Tn.z1 + w),
-    ].map(c => stat(c, 'drawer', 'TUNEL'));
-    this.decor.push({ kind: 'buttress', rock, wood });
-
-    // Escaleras al cielo: tramos flotantes que giran despacio pegados a la horquilla
-    const sE = cp[GATE.escaleras], sH = cp[GATE.horquilla];
-    [[sE + 60, 88, 6], [sE + 170, -88, 18], [sH - 50, 90, 0], [sH + 70, -92, -8], [sH + 190, 88, 12]].forEach(([s, lat, up], k) => {
-      const f = S.frame(s), c0 = f.P.clone().addScaled(f.R, lat).addScaled(f.U, up);
-      const steps = 8, run = 13, rise = 7, cols = [];
-      for (let j = 0; j < steps; j++) cols.push(tag({ type: 'box', c: new V3(), h: new V3(run / 2, 2, 15), yaw: 0 }, 'stairs'));
-      const speed = (k % 2 ? -1 : 1) * (0.1 + R() * 0.06), yaw0 = R() * 6.28;
-      this.movers.push({
-        kind: 'stairs', cols, pos: c0, yaw: 0, steps, run, rise,
-        bound: { c: c0, r: Math.hypot((steps * run) / 2, (steps * rise) / 2, 15) + 4 },
-        update(t) {
-          this.yaw = yaw0 + speed * t;
-          const co = Math.cos(this.yaw), si = Math.sin(this.yaw);
-          cols.forEach((c, j) => {
-            const d = (j - (steps - 1) / 2) * run, h = (j - (steps - 1) / 2) * rise;
-            c.c.set(c0.x + d * co, c0.y + h, c0.z - d * si);
-            c.yaw = this.yaw;
-          });
-        },
-      });
-    });
-
-    // Péndulos gigantes colgados de las nubes, que barren el tramo alto de lado a lado
-    const sA = cp[GATE.pendulos - 1], sB = cp[GATE.puerta];
-    [0.16, 0.4, 0.62, 0.84].forEach((f, k) => {
-      const fr = S.frame(sA + (sB - sA) * f), L = 360;
-      const pivot = fr.P.clone().addScaled(UP, L), lat = new V3(fr.R.x, 0, fr.R.z).normalize();
-      const rod = tag({ type: 'capsule', a: pivot, b: new V3(), r: 1.8 }, 'pendulum');
-      const bob = tag({ type: 'sphere', c: rod.b, r: 15 }, 'pendulum');
-      const amp = 0.55, period = 9, phase = k * 1.9;
-      this.movers.push({
-        kind: 'pendulum', cols: [rod, bob], pivot, lat, L, angle: 0, bob: rod.b,
-        bound: { c: pivot.clone().addScaled(UP, -L / 2), r: L / 2 + L * Math.sin(amp) + 20 },
-        update(t) {
-          this.angle = amp * Math.sin((2 * Math.PI * t) / period + phase);
-          rod.b.copy(pivot).addScaled(lat, L * Math.sin(this.angle)).addScaled(UP, -L * Math.cos(this.angle));
-        },
-      });
-    });
-
-    // La puerta: un marco suspendido en el aire. Al cruzarla se hace de noche.
-    {
-      const fr = S.frame(cp[GATE.puerta]), yaw = yawFromRight(fr.R), half = 40, tall = 60;
-      for (const sd of [-1, 1]) stat({ type: 'box', c: fr.P.clone().addScaled(fr.R, sd * (half + 6)), h: new V3(6, tall + 6, 6), yaw }, 'door');
-      stat({ type: 'box', c: fr.P.clone().addScaled(UP, tall + 6), h: new V3(half + 12, 6, 6), yaw }, 'door');
-      stat({ type: 'box', c: fr.P.clone().addScaled(UP, -tall - 6), h: new V3(half + 12, 6, 6), yaw }, 'door');
-      const leafC = fr.P.clone().addScaled(fr.R, -(half + 8)).addScaled(fr.T, -(half + 2));
-      const leaf = stat({ type: 'box', c: leafC, h: new V3(half, tall, 1.5), yaw: yawFromRight(fr.T) }, 'door');
-      this.decor.push({ kind: 'door', p: fr.P, yaw, half, tall, leaf });
-    }
-
-    // Puentes de papel que se pliegan: dos hojas que suben y bajan sobre el recorrido
-    for (const [off, period, phase] of [[200, 7, 0], [390, 8.5, 2.1]]) {
-      const fr = S.frame(cp[GATE.puerta] + off), hw = 62, Lf = 60, wide = 13;
-      const leaves = [-1, 1].map(sd => tag({ type: 'obb', c: new V3(), h: new V3(Lf / 2, 0.8, wide), ax: new V3(), ay: new V3(), az: fr.T.clone() }, 'bridge'));
-      this.movers.push({
-        kind: 'bridge', cols: leaves, fr, hw, Lf, wide, angle: 0,
-        bound: { c: fr.P.clone(), r: hw + 20 },
-        update(t) {
-          // 0: cerrado (plano, cruza el recorrido); 1,25 rad: abierto (las hojas casi verticales a los lados)
-          this.angle = 1.25 * clamp(0.5 + 0.75 * Math.sin((2 * Math.PI * t) / period + phase), 0, 1);
-          const co = Math.cos(this.angle), si = Math.sin(this.angle);
-          leaves.forEach((c, k) => {
-            const sd = k ? 1 : -1; // −1 hoja izquierda, +1 derecha
-            c.ax.set(-sd * fr.R.x * co + fr.U.x * si, -sd * fr.R.y * co + fr.U.y * si, -sd * fr.R.z * co + fr.U.z * si);
-            c.ay.crossVectors(fr.T, c.ax).normalize();
-            if (c.ay.dot(fr.U) < 0) c.ay.scale(-1);
-            c.c.copy(fr.P).addScaled(fr.R, sd * hw).addScaled(c.ax, Lf / 2);
-          });
-        },
-      });
-    }
-
-    // Ballena de nubes: nada despacio a lo largo del recorrido, por encima; se pasa por debajo
-    {
-      const sW = cp[GATE.ballena], body = tag({ type: 'ellipsoid', c: new V3(), r: new V3(30, 26, 100), yaw: 0 }, 'whale');
-      const tail = tag({ type: 'sphere', c: new V3(), r: 16 }, 'whale');
-      this.movers.push({
-        kind: 'whale', cols: [body, tail], pos: body.c, yaw: 0, sway: 0,
-        bound: { c: S.pointAt(sW).addScaled(UP, 60), r: 420 },
-        update(t) {
-          const s = sW + 130 * Math.sin((2 * Math.PI * t) / 38);
-          const P = S.pointAt(s), T = S.tangentAt(s);
-          this.sway = Math.sin((2 * Math.PI * t) / 4.5);
-          body.c.copy(P).addScaled(UP, 62 + 6 * Math.sin((2 * Math.PI * t) / 8));
-          this.yaw = Math.atan2(T.x, T.z);
-          body.yaw = this.yaw;
-          tail.c.set(body.c.x - Math.sin(this.yaw) * 110, body.c.y + 4 + this.sway * 6, body.c.z - Math.cos(this.yaw) * 110);
-        },
-      });
-    }
-
-    // Tren de vapor por un raíl suspendido que cruza el lago; aparece y desaparece entre nubes
-    {
-      let best = null;
-      for (let s = cp[GATE.lago]; s < cp[GATE.lago + 1]; s += 4) { const p = S.pointAt(s); if (!best || Math.abs(p.z + 60) < Math.abs(best.z + 60)) best = p; }
-      const yR = best.y, zR = -60, xA = -1300, xB = -150, v = 46, cars = 4, gap = 19;
-      stat(boxFrom(xA, yR - 6.6, zR - 1.4, xB, yR - 5.4, zR + 1.4), 'rail');
-      const cols = [];
-      for (let k = 0; k < cars; k++) cols.push(tag({ type: 'box', c: new V3(0, yR - 5 + (k ? 4.5 : 5), zR), h: new V3(8.5, k ? 4.5 : 5, k ? 3.4 : 3.6), yaw: 0 }, 'train'));
-      const span = xB - xA + 120;
-      this.movers.push({
-        kind: 'train', cols, head: 0, xA, xB, yR, zR, cars, gap,
-        bound: { c: new V3((xA + xB) / 2, yR, zR), r: (xB - xA) / 2 + 90 },
-        update(t) {
-          this.head = xA - 60 + ((t * v) % span + span) % span;
-          cols.forEach((c, k) => { c.c.x = this.head - k * gap; });
-        },
-      });
-      this.decor.push({ kind: 'rail', xA, xB, yR, zR });
-    }
-
-    // Peñascos flotantes alrededor de la horquilla y sobre el bosque (con colisión)
-    for (let k = 0, tries = 0; k < 14 && tries < 400; tries++) {
-      const near = k < 8 ? S.pointAt(sH + (R() - 0.5) * 700) : S.pointAt(cp[GATE.bosque] + R() * 1200);
-      const c = new V3(near.x + (R() - 0.5) * 500, near.y + 60 + R() * 220, near.z + (R() - 0.5) * 500);
-      const r = 14 + R() * 22;
-      if (S.nearest(c).d < r + 70) continue;
-      stat({ type: 'sphere', c, r: r * 0.9 }, 'rock');
-      this.decor.push({ kind: 'floatRock', c, r, seed: R() });
-      k++;
-    }
-
-    // Viento: corrientes térmicas (te elevan y cargan turbo) y viento lateral junto al acantilado
-    for (const [i, f, lat] of [[GATE.lago, 0.3, 46], [GATE.lago, 0.72, -44], [GATE.lago + 1, 0.5, 42], [GATE.acantilado - 1, 0.6, -60], [GATE.acantilado - 1, 0.85, 55]]) {
-      const fr = S.frame(segS(i, f)), c = fr.P.clone().addScaled(fr.R, lat);
-      this.thermals.push({ c: new V3(c.x, 0, c.z), r: 30, top: fr.P.y + 160, k: 18 });
-    }
-    this.windZones.push({ x0: 280, x1: 1600, z0: CLIFF_FACE_Z, z1: -1650, y1: 260, dir: new V3(0, 0, -1), k: 5 });
-  }
 
   update(t) { for (const m of this.movers) m.update(t); }
 
@@ -486,7 +291,7 @@ export class Track {
     return out.lenSq() > 1e-12 ? out.normalize() : out.set(0, 1, 0);
   }
 
-  groundY() { return 0; }
+  groundY() { return this.map.groundY ?? 0; }
 
   // Rayo por «sphere tracing»: devuelve la distancia al primer choque (incluido el suelo).
   // margin = grosor del rayo (el radio del jet, o más para ir con holgura)
@@ -509,11 +314,11 @@ export class Track {
   predictMovers(p, future, now, radius = 300) {
     let best = { d: Infinity, col: null, n: null };
     for (const m of this.movers) {
-      if (p.dist(m.bound.c) - m.bound.r > radius) continue;
+      if (m.aiIgnore || p.dist(m.bound.c) - m.bound.r > radius) continue;
       m.update(future);
       for (const c of m.cols) {
         const d = sdf(c, p);
-        if (d < best.d) best = { d, col: c, n: this.normal(c, p) };
+        if (d < best.d) best = { d, col: c, n: this.normal(c, p), m };
       }
       m.update(now);
     }
@@ -521,8 +326,235 @@ export class Track {
   }
 }
 
+// ---------- Mapa 1: Desierto de los sueños (colisionadores, obstáculos, viento) ----------
+export function buildDesierto(TK) {
+  const S = TK.spline, R = TK.rand, cp = S.cpS;
+  const tag = (c, kind) => TK.tag(c, kind);
+  const stat = (c, kind, grp) => TK.stat(c, kind, grp);
+  const segS = (i, f) => cp[i] + ((i + 1 < cp.length ? cp[i + 1] : TK.length) - cp[i]) * f;
+
+  // Puertas (anillos) en cada punto de control. La del contrafuerte acepta también el atajo del cajón.
+  CP.forEach((_, i) => {
+    const P = S.pointAt(cp[i]), T = S.tangentAt(cp[i]);
+    const ring = i === 0 ? 30 : i === GATE.horquilla ? 24 : 18;
+    TK.gates.push({ i, s: cp[i], p: P, t: T, ring, cp: i === GATE.contrafuerte ? 125 : 75 });
+  });
+  // Anillos de turbo pequeños
+  for (const [i, f] of [[GATE.salida, 0.55], [GATE.contrafuerte, 0.62], [GATE.horquilla + 1, 0.4], [GATE.lago - 1, 0.5]]) {
+    const s = segS(i, f);
+    TK.boostRings.push({ s, p: S.pointAt(s), t: S.tangentAt(s), r: 7 });
+  }
+
+  // Plataforma de salida, flotando sobre el lago con un peñasco debajo
+  const plat = stat({ type: 'box', c: new V3(0, 40, 75), h: new V3(32, 4, 60), yaw: 0 }, 'platform');
+  stat({ type: 'capsule', a: new V3(0, 14, 75), b: new V3(0, 30, 75), r: 26 }, 'platform');
+  TK.decor.push({ kind: 'platform', col: plat });
+
+  // Bosque de torres: columnas finísimas que se curvan como velas derretidas
+  const towers = [];
+  const tryTower = (x, z, rad, H, bend, clearance) => {
+    for (const t of towers) if (Math.hypot(t.x - x, t.z - z) < t.rad + rad + 18) return false;
+    for (const p of S.pts) if (p.y < H + 20 && Math.hypot(p.x - x, p.z - z) < rad + clearance) return false;
+    const ang = R() * Math.PI * 2, dir = new V3(Math.cos(ang), 0, Math.sin(ang));
+    const pts = [];
+    for (let k = 0; k <= 4; k++) {
+      const h = (H + 30) * (k / 4), f = (k / 4) ** 2;
+      pts.push(new V3(x + dir.x * bend * f, -30 + h, z + dir.z * bend * f));
+    }
+    for (let k = 0; k < 4; k++) stat({ type: 'capsule', a: pts[k], b: pts[k + 1], r: rad }, 'tower', 'T' + towers.length);
+    towers.push({ x, z, rad });
+    TK.decor.push({ kind: 'tower', pts, r: rad, H, drips: [0, 1, 2].map(() => ({ a: R() * Math.PI * 2, h: 0.72 + R() * 0.2, l: 0.6 + R() * 0.8 })) });
+    return true;
+  };
+  const s0 = cp[GATE.bosque] - 120, s1 = cp[GATE.acantilado] + 60;
+  let side = 1;
+  for (let s = s0; s < s1; s += 44) {
+    const f = S.frame(s);
+    side = -side;
+    const off = side * (26 + R() * 24), rad = 4 + R() * 3.5;
+    tryTower(f.P.x + f.R.x * off, f.P.z + f.R.z * off, rad, 190 + R() * 150, R() * 10, 21);
+    if (R() < 0.4) {
+      const off2 = -side * (28 + R() * 18), r2 = 4 + R() * 3;
+      tryTower(f.P.x + f.R.x * off2, f.P.z + f.R.z * off2, r2, 190 + R() * 150, R() * 10, 21);
+    }
+  }
+  for (let k = 0, tries = 0; k < 70 && tries < 900; tries++) {
+    const x = -560 + R() * 1150, z = -1760 + R() * 1500;
+    if (tryTower(x, z, 5 + R() * 6, 160 + R() * 200, 10 + R() * 35, 48)) k++;
+  }
+
+  // Acantilado (pared de roca) con cajones gigantes que se abren y se cierran
+  const cliff = stat({ type: 'box', c: new V3(850, 95, CLIFF_FACE_Z - 250), h: new V3(720, 145, 250), yaw: 0 }, 'cliff');
+  TK.decor.push({ kind: 'cliff', col: cliff });
+  const B = BUTTRESS, Tn = B.tunnel, w = B.wood;
+  for (let k = 0; k < 11; k++) {
+    const x = 420 + k * 104 + (R() - 0.5) * 24;
+    if (x > B.x0 - 50 && x < B.x1 + 50) continue; // el contrafuerte ocupa ese trozo de pared
+    const { s } = S.nearest(new V3(x, 150, -1880));
+    const y = S.pointAt(s).y + (R() - 0.5) * 50;
+    const ww = 30 + R() * 12, hh = 15 + R() * 6, depth = 30, maxExt = 22 + R() * 10;
+    const period = 5 + R() * 2.5, phase = R() * Math.PI * 2;
+    const col = tag({ type: 'box', c: new V3(x, y, CLIFF_FACE_Z - depth), h: new V3(ww, hh, depth), yaw: 0 }, 'drawer');
+    TK.movers.push({
+      kind: 'drawer', cols: [col], w: ww, hh, depth, x, y, ext: 0,
+      bound: { c: new V3(x, y, CLIFF_FACE_Z), r: Math.hypot(ww, hh, depth + maxExt) + 2 },
+      update(t) {
+        this.ext = maxExt * clamp(0.5 + 0.9 * Math.sin((2 * Math.PI * t) / period + phase), 0, 1);
+        col.c.z = CLIFF_FACE_Z - depth + this.ext;
+      },
+    });
+  }
+  // Contrafuerte con el cajón-túnel: cuatro bloques de roca alrededor del hueco y el cajón de madera que lo forra
+  const zIn = CLIFF_FACE_Z - 10;
+  const rock = [
+    boxFrom(B.x0, -50, zIn, B.x1, Tn.y0 - w, B.zOut),
+    boxFrom(B.x0, Tn.y1 + w, zIn, B.x1, 240, B.zOut),
+    boxFrom(B.x0, Tn.y0 - w, Tn.z1 + w, B.x1, Tn.y1 + w, B.zOut),
+    boxFrom(B.x0, Tn.y0 - w, zIn, B.x1, Tn.y1 + w, Tn.z0 - w),
+  ].map(c => stat(c, 'cliff'));
+  const X0 = B.x0 - B.over, X1 = B.x1 + B.over;
+  const wood = [
+    boxFrom(X0, Tn.y0 - w, Tn.z0 - w, X1, Tn.y0, Tn.z1 + w),
+    boxFrom(X0, Tn.y1, Tn.z0 - w, X1, Tn.y1 + w, Tn.z1 + w),
+    boxFrom(X0, Tn.y0, Tn.z0 - w, X1, Tn.y1, Tn.z0),
+    boxFrom(X0, Tn.y0, Tn.z1, X1, Tn.y1, Tn.z1 + w),
+  ].map(c => stat(c, 'drawer', 'TUNEL'));
+  TK.decor.push({ kind: 'buttress', rock, wood });
+
+  // Escaleras al cielo: tramos flotantes que giran despacio pegados a la horquilla
+  const sE = cp[GATE.escaleras], sH = cp[GATE.horquilla];
+  [[sE + 60, 88, 6], [sE + 170, -88, 18], [sH - 50, 90, 0], [sH + 70, -92, -8], [sH + 190, 88, 12]].forEach(([s, lat, up], k) => {
+    const f = S.frame(s), c0 = f.P.clone().addScaled(f.R, lat).addScaled(f.U, up);
+    const steps = 8, run = 13, rise = 7, cols = [];
+    for (let j = 0; j < steps; j++) cols.push(tag({ type: 'box', c: new V3(), h: new V3(run / 2, 2, 15), yaw: 0 }, 'stairs'));
+    const speed = (k % 2 ? -1 : 1) * (0.1 + R() * 0.06), yaw0 = R() * 6.28;
+    TK.movers.push({
+      kind: 'stairs', cols, pos: c0, yaw: 0, steps, run, rise,
+      bound: { c: c0, r: Math.hypot((steps * run) / 2, (steps * rise) / 2, 15) + 4 },
+      update(t) {
+        this.yaw = yaw0 + speed * t;
+        const co = Math.cos(this.yaw), si = Math.sin(this.yaw);
+        cols.forEach((c, j) => {
+          const d = (j - (steps - 1) / 2) * run, h = (j - (steps - 1) / 2) * rise;
+          c.c.set(c0.x + d * co, c0.y + h, c0.z - d * si);
+          c.yaw = this.yaw;
+        });
+      },
+    });
+  });
+
+  // Péndulos gigantes colgados de las nubes, que barren el tramo alto de lado a lado
+  const sA = cp[GATE.pendulos - 1], sB = cp[GATE.puerta];
+  [0.16, 0.4, 0.62, 0.84].forEach((f, k) => {
+    const fr = S.frame(sA + (sB - sA) * f), L = 360;
+    const pivot = fr.P.clone().addScaled(UP, L), lat = new V3(fr.R.x, 0, fr.R.z).normalize();
+    const rod = tag({ type: 'capsule', a: pivot, b: new V3(), r: 1.8 }, 'pendulum');
+    const bob = tag({ type: 'sphere', c: rod.b, r: 15 }, 'pendulum');
+    const amp = 0.55, period = 9, phase = k * 1.9;
+    TK.movers.push({
+      kind: 'pendulum', cols: [rod, bob], pivot, lat, L, angle: 0, bob: rod.b,
+      bound: { c: pivot.clone().addScaled(UP, -L / 2), r: L / 2 + L * Math.sin(amp) + 20 },
+      update(t) {
+        this.angle = amp * Math.sin((2 * Math.PI * t) / period + phase);
+        rod.b.copy(pivot).addScaled(lat, L * Math.sin(this.angle)).addScaled(UP, -L * Math.cos(this.angle));
+      },
+    });
+  });
+
+  // La puerta: un marco suspendido en el aire. Al cruzarla se hace de noche.
+  {
+    const fr = S.frame(cp[GATE.puerta]), yaw = yawFromRight(fr.R), half = 40, tall = 60;
+    for (const sd of [-1, 1]) stat({ type: 'box', c: fr.P.clone().addScaled(fr.R, sd * (half + 6)), h: new V3(6, tall + 6, 6), yaw }, 'door');
+    stat({ type: 'box', c: fr.P.clone().addScaled(UP, tall + 6), h: new V3(half + 12, 6, 6), yaw }, 'door');
+    stat({ type: 'box', c: fr.P.clone().addScaled(UP, -tall - 6), h: new V3(half + 12, 6, 6), yaw }, 'door');
+    const leafC = fr.P.clone().addScaled(fr.R, -(half + 8)).addScaled(fr.T, -(half + 2));
+    const leaf = stat({ type: 'box', c: leafC, h: new V3(half, tall, 1.5), yaw: yawFromRight(fr.T) }, 'door');
+    TK.decor.push({ kind: 'door', p: fr.P, yaw, half, tall, leaf });
+  }
+
+  // Puentes de papel que se pliegan: dos hojas que suben y bajan sobre el recorrido
+  for (const [off, period, phase] of [[200, 7, 0], [390, 8.5, 2.1]]) {
+    const fr = S.frame(cp[GATE.puerta] + off), hw = 62, Lf = 60, wide = 13;
+    const leaves = [-1, 1].map(sd => tag({ type: 'obb', c: new V3(), h: new V3(Lf / 2, 0.8, wide), ax: new V3(), ay: new V3(), az: fr.T.clone() }, 'bridge'));
+    TK.movers.push({
+      kind: 'bridge', cols: leaves, fr, hw, Lf, wide, angle: 0,
+      bound: { c: fr.P.clone(), r: hw + 20 },
+      update(t) {
+        // 0: cerrado (plano, cruza el recorrido); 1,25 rad: abierto (las hojas casi verticales a los lados)
+        this.angle = 1.25 * clamp(0.5 + 0.75 * Math.sin((2 * Math.PI * t) / period + phase), 0, 1);
+        const co = Math.cos(this.angle), si = Math.sin(this.angle);
+        leaves.forEach((c, k) => {
+          const sd = k ? 1 : -1; // −1 hoja izquierda, +1 derecha
+          c.ax.set(-sd * fr.R.x * co + fr.U.x * si, -sd * fr.R.y * co + fr.U.y * si, -sd * fr.R.z * co + fr.U.z * si);
+          c.ay.crossVectors(fr.T, c.ax).normalize();
+          if (c.ay.dot(fr.U) < 0) c.ay.scale(-1);
+          c.c.copy(fr.P).addScaled(fr.R, sd * hw).addScaled(c.ax, Lf / 2);
+        });
+      },
+    });
+  }
+
+  // Ballena de nubes: nada despacio a lo largo del recorrido, por encima; se pasa por debajo
+  {
+    const sW = cp[GATE.ballena], body = tag({ type: 'ellipsoid', c: new V3(), r: new V3(30, 26, 100), yaw: 0 }, 'whale');
+    const tail = tag({ type: 'sphere', c: new V3(), r: 16 }, 'whale');
+    TK.movers.push({
+      kind: 'whale', cols: [body, tail], pos: body.c, yaw: 0, sway: 0,
+      bound: { c: S.pointAt(sW).addScaled(UP, 60), r: 420 },
+      update(t) {
+        const s = sW + 130 * Math.sin((2 * Math.PI * t) / 38);
+        const P = S.pointAt(s), T = S.tangentAt(s);
+        this.sway = Math.sin((2 * Math.PI * t) / 4.5);
+        body.c.copy(P).addScaled(UP, 62 + 6 * Math.sin((2 * Math.PI * t) / 8));
+        this.yaw = Math.atan2(T.x, T.z);
+        body.yaw = this.yaw;
+        tail.c.set(body.c.x - Math.sin(this.yaw) * 110, body.c.y + 4 + this.sway * 6, body.c.z - Math.cos(this.yaw) * 110);
+      },
+    });
+  }
+
+  // Tren de vapor por un raíl suspendido que cruza el lago; aparece y desaparece entre nubes
+  {
+    let best = null;
+    for (let s = cp[GATE.lago]; s < cp[GATE.lago + 1]; s += 4) { const p = S.pointAt(s); if (!best || Math.abs(p.z + 60) < Math.abs(best.z + 60)) best = p; }
+    const yR = best.y, zR = -60, xA = -1300, xB = -150, v = 46, cars = 4, gap = 19;
+    stat(boxFrom(xA, yR - 6.6, zR - 1.4, xB, yR - 5.4, zR + 1.4), 'rail');
+    const cols = [];
+    for (let k = 0; k < cars; k++) cols.push(tag({ type: 'box', c: new V3(0, yR - 5 + (k ? 4.5 : 5), zR), h: new V3(8.5, k ? 4.5 : 5, k ? 3.4 : 3.6), yaw: 0 }, 'train'));
+    const span = xB - xA + 120;
+    TK.movers.push({
+      kind: 'train', cols, head: 0, xA, xB, yR, zR, cars, gap,
+      bound: { c: new V3((xA + xB) / 2, yR, zR), r: (xB - xA) / 2 + 90 },
+      update(t) {
+        this.head = xA - 60 + ((t * v) % span + span) % span;
+        cols.forEach((c, k) => { c.c.x = this.head - k * gap; });
+      },
+    });
+    TK.decor.push({ kind: 'rail', xA, xB, yR, zR });
+  }
+
+  // Peñascos flotantes alrededor de la horquilla y sobre el bosque (con colisión)
+  for (let k = 0, tries = 0; k < 14 && tries < 400; tries++) {
+    const near = k < 8 ? S.pointAt(sH + (R() - 0.5) * 700) : S.pointAt(cp[GATE.bosque] + R() * 1200);
+    const c = new V3(near.x + (R() - 0.5) * 500, near.y + 60 + R() * 220, near.z + (R() - 0.5) * 500);
+    const r = 14 + R() * 22;
+    if (S.nearest(c).d < r + 70) continue;
+    stat({ type: 'sphere', c, r: r * 0.9 }, 'rock');
+    TK.decor.push({ kind: 'floatRock', c, r, seed: R() });
+    k++;
+  }
+
+  // Viento: corrientes térmicas (te elevan y cargan turbo) y viento lateral junto al acantilado
+  for (const [i, f, lat] of [[GATE.lago, 0.3, 46], [GATE.lago, 0.72, -44], [GATE.lago + 1, 0.5, 42], [GATE.acantilado - 1, 0.6, -60], [GATE.acantilado - 1, 0.85, 55]]) {
+    const fr = S.frame(segS(i, f)), c = fr.P.clone().addScaled(fr.R, lat);
+    TK.thermals.push({ c: new V3(c.x, 0, c.z), r: 30, top: fr.P.y + 160, k: 18 });
+  }
+  TK.windZones.push({ x0: 280, x1: 1600, z0: CLIFF_FACE_Z, z1: -1650, y1: 260, dir: new V3(0, 0, -1), k: 5 });
+}
+
 const key = (ix, iz) => (ix + 1000) * 4000 + (iz + 1000);
 function bounds(c) {
+  if (c.type === 'archwall') c = { ...c, type: 'box' };
   let r, x0, x1, z0, z1;
   switch (c.type) {
     case 'sphere': r = c.r; return { x0: c.c.x - r, x1: c.c.x + r, z0: c.c.z - r, z1: c.c.z + r };

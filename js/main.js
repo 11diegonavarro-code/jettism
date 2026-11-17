@@ -1,7 +1,8 @@
 // Jettism: vuelo, piruetas, contrarreloj con fantasma, vuelo libre y carreras de hasta 8 (amigos y bots).
 import * as THREE from 'three';
 import { createWorld, QUALITY, SUN } from './world.js';
-import { Track, SECTIONS, BASE_COURSE } from './track.js';
+import { Track } from './track.js';
+import { MAPS, mapById } from './maps/index.js';
 import { Race } from './race.js';
 import { encodeCourse, decodeCourse, courseId, CourseStore, cleanCourseName } from './course.js';
 import { Editor } from './editor.js';
@@ -11,7 +12,8 @@ import { buildJet } from './jet-model.js';
 import { steerToward, applyAssist, collisionWarning } from './flight.js';
 import { Autopilot } from './ai.js';
 import { ComboParser, COMBO_HELP } from './tricks.js';
-import { GhostRecorder, GhostPlayer, encodeGhost, decodeGhost } from './ghost.js';
+import { GhostRecorder, GhostPlayer, encodeGhost, decodeGhost, packGhost, unpackGhost } from './ghost.js';
+import { Board } from './board.js';
 import { FX } from './fx.js';
 import { Sound, RemoteVoice } from './audio.js';
 import { Music } from './music.js';
@@ -29,8 +31,8 @@ const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
 // la clave del mapa cambia cuando cambia el recorrido, para no mezclar récords y fantasmas de versiones distintas
-const STEP = 1 / 120, BASE_MAP = 'desierto2', MAX_JETS = 8;
-let MAP = BASE_MAP; // clave de los récords y del fantasma: el original o el circuito propio
+const STEP = 1 / 120, MAX_JETS = 8;
+let MAP = 'desierto2'; // clave de los récords y del fantasma: la del mapa o la del circuito propio
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
@@ -49,6 +51,7 @@ const settings = {
   sens: +store.get('jt-sens', 1) || 1,
   volume: +store.get('jt-volume', 0.6),
   music: +store.get('jt-music', 0.35),
+  board: store.get('jt-board', '1') === '1',
   quality: QUALITY[savedQ] ? savedQ : 'alta',
   gyro: store.get('jt-gyro', '0') === '1',
   name: cleanName(store.get('jt-name', 'Piloto' + Math.floor(Math.random() * 90 + 10))),
@@ -66,12 +69,23 @@ renderer.setSize(innerWidth, innerHeight);
 document.body.prepend(renderer.domElement);
 const world = createWorld(renderer, settings.quality);
 const { scene, camera } = world;
-const track = new Track();
+settings.map = mapById(store.get('jt-map', 'desierto')).id;
+const track = new Track(mapById(settings.map));
+MAP = track.map.key;
 const view = new CourseView(scene, track, world.quality);
-const clouds = new Clouds(scene, track, world.quality, SUN);
+world.setMap(track.map.atmo ? track.map.atmo() : null);
+// nubes sueltas: solo en el desierto (cuelgan de ellas los péndulos y el tren sale de ellas)
+let clouds = null;
+function syncClouds() {
+  if (track.map.clouds && !clouds) clouds = new Clouds(scene, track, world.quality, SUN);
+  if (clouds) clouds.mesh.visible = !!track.map.clouds;
+}
+syncClouds();
 const fx = new FX(scene, camera, world.quality);
-// tramos con clima propio: noche tras la puerta y niebla rosa en el bosque
-const ZONE = { night0: track.sOf('puerta'), night1: track.sOf('lago'), pink0: track.sOf('bosque'), pink1: track.sOf('acantilado') };
+// tramos con clima propio (solo en el desierto): noche tras la puerta y niebla rosa en el bosque
+let ZONE = null;
+const syncZones = () => { ZONE = track.map.zones ? { night0: track.sOf('puerta'), night1: track.sOf('lago'), pink0: track.sOf('bosque'), pink1: track.sOf('acantilado') } : null; };
+syncZones();
 const atm = { night: 0, pink: 0, steamT: 0 };
 const sound = new Sound();
 sound.volume = settings.volume;
@@ -147,32 +161,77 @@ const myId = () => (net.online ? net.me : 'me');
 // ---------- Circuitos ----------
 const courses = new CourseStore(store);
 let courseCode = null; // circuito puesto ahora (null: el original)
-settings.course = store.get('jt-course', '') || '';
+// circuito elegido en cada mapa (vacío: el original del mapa)
+const courseKey = () => `jt-course-${track.map.id}`;
+settings.course = store.get(courseKey(), track.map.id === 'desierto' ? store.get('jt-course', '') : '') || '';
 const _bs = new V3();
 // Posición equivalente en el recorrido original (para el clima por zonas en los circuitos propios)
 const baseS = p => track.base.spline.nearest(_bs.set(p.x, p.y, p.z)).s;
-function courseName(code) { if (!code) return BASE_COURSE.name; try { return decodeCourse(code).name; } catch { return '¿?'; } }
+function courseName(code) { if (!code) return track.map.course.name; try { return decodeCourse(code).name; } catch { return '¿?'; } }
+// Cambia de mapa: recorrido, colisionadores, decorado, luz, objetos, récords y música; los jets que vuelan siguen
+function applyMap(id) {
+  const m = mapById(id);
+  if (m === track.map) return false;
+  track.load(m);
+  courseCode = null;
+  view.load(m); view.setNextGate(0);
+  world.setMap(m.atmo ? m.atmo() : null);
+  syncClouds(); syncZones();
+  items.layout();
+  MAP = m.key; loadRecords(); ghost = null;
+  for (const r of racers) { r.race = new Race(track, r.race.laps, r.race.dir, r.race.flying); r.race.teleport(r.jet.pos); r.L = track.length; if (r.ap) r.ap.hint = -1; }
+  if (me) setMe(me);
+  meAp.hint = -1;
+  music.setTheme(m.music);
+  settings.course = store.get(courseKey(), '') || '';
+  try { renderer.compile(scene, camera); } catch { /* se compila al dibujar */ }
+  return true;
+}
+function selectMap(id) { settings.map = mapById(id).id; store.set('jt-map', settings.map); }
+// Medallas de la contrarreloj de cada mapa (tiempo total: 3 vueltas en el desierto, 1 en los demás)
+const MEDALS = [['autor', '🏆', 'Autor'], ['oro', '🥇', 'Oro'], ['plata', '🥈', 'Plata'], ['bronce', '🥉', 'Bronce']];
+const medalOf = (m, time) => (time && m.medals ? MEDALS.find(([k]) => time <= m.medals[k]) || null : null);
+// Muestra «Cargando…» un par de fotogramas antes de algo que tarda (construir un mapa)
+function withLoading(text, fn) {
+  $('loading').textContent = text; $('loading').hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => { try { fn(); } finally { $('loading').hidden = true; } }));
+}
+function openMaps() {
+  const box = $('mapCards');
+  box.innerHTML = '';
+  for (const m of MAPS) {
+    const best = +store.get(`jt-${m.key}-total`, 0) || null, md = medalOf(m, best), b = document.createElement('button');
+    b.className = 'mapCard' + (m.id === track.map.id ? ' on' : '');
+    b.innerHTML = `<div class="thumb" style="background-image:url(img/mapas/${m.id}.jpg)"></div><b>${esc(m.name)}</b><small>${esc(m.blurb || '')}</small>` +
+      `<span class="mrow">${md ? `${md[1]} ${md[2]}` : 'Sin medalla'} · tu mejor: ${best ? fmtTime(best) : '—'}</span>` +
+      `<span class="mrow dim">Contrarreloj de ${m.laps} ${m.laps === 1 ? 'vuelta' : 'vueltas'} · oro ${fmtTime(m.medals.oro)} · autor ${fmtTime(m.medals.autor)}</span>`;
+    b.onclick = () => { selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); };
+    box.appendChild(b);
+  }
+  showOverlay('maps');
+}
 // Pone un circuito (o el original): puertas, anillos, objetos, récords; los jets que ya vuelan siguen con la carrera nueva
 function applyCourse(code) {
   code = code || null;
   let c = null;
   if (code) { try { c = decodeCourse(code); } catch { code = null; } }
+  if (c && c.map !== track.map.id) applyMap(c.map); // un circuito de otro mapa lleva a ese mapa
   if (code === courseCode) return;
   track.setCourse(c);
   courseCode = code;
   view.buildGates(); view.setNextGate(0);
   items.layout();
-  MAP = code ? courseId(code) : BASE_MAP;
+  MAP = code ? courseId(code) : track.map.key;
   loadRecords(); ghost = null;
-  for (const r of racers) { r.race = new Race(track, r.race.laps, r.race.dir); r.race.teleport(r.jet.pos); r.L = track.length; if (r.ap) r.ap.hint = -1; }
+  for (const r of racers) { r.race = new Race(track, r.race.laps, r.race.dir, r.race.flying); r.race.teleport(r.jet.pos); r.L = track.length; if (r.ap) r.ap.hint = -1; }
   if (me) setMe(me);
   meAp.hint = -1;
 }
-function selectCourse(code) { settings.course = code || ''; store.set('jt-course', settings.course); }
+function selectCourse(code) { settings.course = code || ''; store.set(courseKey(), settings.course); }
 // Lista para un desplegable: el original, mis circuitos y, si hace falta, el de la sala
 function fillCourseSelect(sel, value, withBase = true) {
-  const list = courses.list();
-  sel.innerHTML = (withBase ? `<option value="">${esc(BASE_COURSE.name)} (original)</option>` : '') + list.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('');
+  const list = courses.list(track.map.id);
+  sel.innerHTML = (withBase ? `<option value="">${esc(track.map.course.name)} (original)</option>` : '') + list.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('');
   if (value && !list.some(c => c.code === value)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(value)}">${esc(courseName(value))}</option>`);
   sel.value = value || '';
 }
@@ -182,8 +241,8 @@ function clearRacers(keepMe = false) {
   for (const r of racers) if (!(keepMe && r === me)) r.dispose();
   racers = keepMe && me ? [me] : [];
 }
-function newMe(laps = 3) {
-  const r = new Racer(scene, track, { id: myId(), name: settings.name, cfg: settings.cfg, owned: true, me: true, laps });
+function newMe(laps = 3, flying = false) {
+  const r = new Racer(scene, track, { id: myId(), name: settings.name, cfg: settings.cfg, owned: true, me: true, laps, flying });
   racers.push(r);
   setMe(r);
   sound.setEngine(settings.cfg.engine);
@@ -221,10 +280,10 @@ function resetRun() {
   me.smoke.clear();
 }
 // Partida en solitario: deja solo mi jet
-function soloRacers(laps) {
+function soloRacers(laps, flying = false) {
   net.close();
   clearRacers();
-  newMe(laps);
+  newMe(laps, flying);
   resetModes();
 }
 // Vuelve a lo normal: sin modo especial, sin objetos, sin noche forzada y en el sentido normal
@@ -233,20 +292,28 @@ function resetModes() {
   items.enable(false);
   touchItems();
 }
-function startTrial(laps) {
+// quick: reinicio instantáneo (sin cuenta atrás si la salida es lanzada; 1,2 s si es desde la plataforma)
+function startTrial(laps, quick = false) {
   sound.init();
-  game.trialLaps = laps || +params.get('laps') || 3;
-  soloRacers(game.trialLaps);
+  game.trialLaps = laps || +params.get('laps') || track.map.laps;
+  const flying = track.map.start === 'air' || !!track.custom;
+  soloRacers(game.trialLaps, flying);
   game.mode = 'trial'; game.phase = 'countdown'; game.paused = false; game.autopilot = DEBUG && params.has('auto');
   resetRun();
-  game.go = performance.now() + 3600; game.t = -3.6;
+  run = { splits: [] };
+  pbSplits = (() => { try { return JSON.parse(store.get(`jt-${MAP}-splits`, '[]')); } catch { return []; } })();
   me.start = startSpot({ kind: 'carrera', dir: 1 }, 0);
   me.place(me.start.pos, me.start.fwd, 0, 99);
   syncAim();
   ghost = loadGhost();
   showOverlay(null); hud.show(true); cam.cut = true;
+  touchTrial();
   lockIfNeeded();
+  if (quick && flying) { game.t = 0; game.go = performance.now(); launch(); }
+  else { const cd = quick ? 1.2 : 3.6; game.go = performance.now() + cd * 1000; game.t = -cd; }
 }
+// Botón táctil de reiniciar: solo en la contrarreloj
+function touchTrial() { const b = document.querySelector('#touch [data-btn=restart]'); if (b) b.hidden = game.mode !== 'trial'; }
 // Salida: desde la plataforma (un poco hacia arriba) o, al revés y en combate, desde el aire
 function launchRacer(r) {
   const S = r.start || { pos: PLATFORM, fwd: new V3(0, 0, -1), air: false }, p = 0.12;
@@ -289,8 +356,12 @@ function startFree() {
 function toMenu(msg = '') {
   net.close();
   editorTest = false;
+  applyMap(settings.map);
   applyCourse(settings.course);
   fillCourseSelect($('courseMenu'), settings.course);
+  $('mapName').textContent = track.map.name;
+  $('mapBlurb').textContent = `${track.map.blurb} Modos: carrera, carrera con objetos, copa, combate aéreo y acrobacias. Con el editor puedes trazar tus propios circuitos por el mismo mapa.`;
+  $('btnTrial').textContent = `Contrarreloj · ${track.map.laps} ${track.map.laps === 1 ? 'vuelta' : 'vueltas'}`;
   clearRacers();
   newMe(Infinity);
   resetModes();
@@ -353,7 +424,7 @@ const MODES = {
 };
 const CUP_PTS = [10, 8, 6, 5, 4, 3, 2, 1];
 const ACRO_TRICKS = ['tonel', 'derrape', 'looping', 'campana', 'immelmann', 'splitS', 'barrena', 'cobra'];
-const newLobby = (players, bots) => ({ players, bots, course: settings.course || null, laps: lobby.laps || 3, diff: lobby.diff || 'normal', mode: lobby.mode || 'carrera', time: lobby.time || 180, racing: false });
+const newLobby = (players, bots) => ({ players, bots, map: settings.map, course: settings.course || null, laps: lobby.laps || 3, diff: lobby.diff || 'normal', mode: lobby.mode || 'carrera', time: lobby.time || 180, racing: false });
 const rules = () => game.rules || { kind: 'carrera', dir: 1 };
 const timed = () => ['combate', 'acro'].includes(rules().kind);
 // Carrera contra bots (sin red): la «sala» es solo la ventana de ajustes
@@ -436,8 +507,12 @@ function renderLobby() {
   const maxBots = MAX_JETS - L.players.length;
   L.bots = Math.min(L.bots, maxBots);
   $('hostOpts').hidden = !hosting;
-  if (hosting) fillCourseSelect($('courseSel'), L.course || '');
-  $('courseInfo').textContent = hosting ? '' : `Circuito: ${courseName(L.course)}`;
+  if (hosting) {
+    $('mapSel').innerHTML = MAPS.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    $('mapSel').value = track.map.id;
+    fillCourseSelect($('courseSel'), L.course || '');
+  }
+  $('courseInfo').textContent = hosting ? '' : `Mapa: ${mapById(L.map).name} · circuito: ${courseName(L.course)}`;
   $('btnSaveCourse').hidden = hosting || !L.course || courses.list().some(c => c.code === L.course);
   $('mode').value = L.mode || 'carrera';
   $('modeInfo').textContent = (MODES[L.mode] || MODES.carrera).info;
@@ -473,7 +548,7 @@ function startRace(sameGrid = null) {
   }
   const slots = all.map((_, i) => i).sort(() => Math.random() - 0.5);
   const R = { kind, laps: timed2(kind) ? Infinity : lobby.laps, time: lobby.time || 180, dir: kind === 'copa' && round === 1 ? -1 : 1, night: kind === 'copa' && round === 2, round };
-  const msg = { t: 'start', course: lobby.course || null, go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i] })) };
+  const msg = { t: 'start', map: track.map.id, course: lobby.course || null, go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i] })) };
   if (net.online) net.send(msg);
   beginRace(msg);
   if (net.online) broadcastLobby();
@@ -486,7 +561,7 @@ function clearSpot(p) {
 }
 function startSpot(R, slot) {
   const S = track.spline;
-  if (track.custom && R.dir > 0 && R.kind !== 'combate') {
+  if ((track.custom || track.map.start === 'air') && R.dir > 0 && R.kind !== 'combate') {
     const s = track.length - 110 - Math.floor(slot / 2) * 24, f = S.frame(s);
     return { pos: clearSpot(f.P.clone().addScaled(f.R, slot % 2 ? 10 : -10)), fwd: f.T, air: true };
   }
@@ -502,6 +577,7 @@ function startSpot(R, slot) {
 }
 function beginRace(m) {
   sound.init();
+  if (m.map) applyMap(m.map);
   applyCourse(m.course || null);
   clearRacers();
   const R = { kind: 'carrera', dir: 1, night: false, round: 0, ...(m.rules || {}) };
@@ -656,6 +732,7 @@ net.on('leave', m => {
 net.on('lobby', m => {
   if (net.host) return;
   lobby = m.lobby;
+  if (game.mode === 'lobby' && lobby.map && lobby.map !== track.map.id) applyMap(lobby.map);
   if (game.mode === 'lobby' && (lobby.course || null) !== courseCode) applyCourse(lobby.course);
   syncLobbyRacers();
   if (!$('lobby').hidden) renderLobby();
@@ -748,7 +825,7 @@ function stepRacer(r, ev, awards) {
       if (isMe && r.missT < STEP * 1.5) { hud.center('¡Te has saltado una puerta!', 'small', 1.5); sound.sfx('trickFail'); }
       if (r.missT > (isMe ? 1.5 : 0.3)) { r.missT = 0; isMe ? respawn() : respawnRacer(r); }
     } else r.missT = 0;
-    if (isMe && game.mode === 'trial' && game.phase === 'race') ghostRec.sample(game.t - race.lapStart, J);
+    if (isMe && game.mode === 'trial' && game.phase === 'race' && race.lap >= 1) ghostRec.sample(game.t - race.lapStart, J);
   } else {
     J.step(STEP, r.ctl, track, game.t, ev);
     if (J.crashT <= 0) isMe ? respawn() : respawnRacer(r);
@@ -852,11 +929,12 @@ function handleEvents(ev, awards) {
         break;
       case 'gate': {
         const g = track.gates[e.i];
+        trialGate(e);
         view.setNextGate(race.next);
         if (e.ring) { jet.turbo = Math.min(100, jet.turbo + 5); fx.ringBurst(g.p, g.t, g.ring); }
         if (!menu) {
           sound.sfx(e.ring ? 'ring' : 'gate');
-          const sec = !track.custom && SECTIONS.find(([i]) => i === e.i && i > 0);
+          const sec = !track.custom && (track.map.sections || []).find(([i]) => i === e.i && i > 0);
           if (sec) hud.sectionName(sec[1]);
         }
         break;
@@ -872,6 +950,84 @@ function handleEvents(ev, awards) {
     }
   }
   for (const a of awards) award(a);
+}
+
+// ---------- Récords: parciales, medallas, fantasma rival y tabla mundial ----------
+let run = { splits: [] }, pbSplits = [], rival = null;
+const runTime = () => (race.flying ? game.t - race.runStart : game.t);
+// Cada puerta de la contrarreloj: parcial comparado con el de tu récord
+function trialGate(e) {
+  if (game.mode !== 'trial' || game.phase !== 'race') return;
+  if (race.flying && e.i === 0 && race.lap === 1 && !race.lapTimes.length) { ghostRec.reset(); return; } // la salida lanzada
+  const t = runTime();
+  run.splits.push(t);
+  const pb = pbSplits[run.splits.length - 1];
+  if (pb != null) showSplit(t - pb);
+}
+function showSplit(d) {
+  const el = $('split');
+  el.textContent = `${d < 0 ? '−' : '+'}${Math.abs(d).toFixed(3).replace('.', ',')}`;
+  el.className = 'sh ' + (d < 0 ? 'good' : 'bad');
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+}
+const PID = (() => { let id = store.get('jt-pid', ''); if (!/^[a-z0-9]{10}$/.test(id)) { id = Array.from(crypto.getRandomValues(new Uint8Array(10)), b => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join(''); store.set('jt-pid', id); } return id; })();
+const board = new Board();
+// Tiempos posibles en la tabla de un mapa (los imposibles se descartan)
+const boardCheck = e => e.t >= (track.custom ? 5000 : (track.map.medals?.autor || 10) * 600) && e.t < 1800000;
+// Fantasma rival (de la tabla mundial o de un reto por enlace), en rosa
+const rivalModel = buildJet(settings.cfg, { ghost: true, ghostColor: 0xff6fd8 });
+rivalModel.group.visible = false;
+scene.add(rivalModel.group);
+function setRival(name, time, data) {
+  try { rival = { name, time, key: MAP, player: new GhostPlayer(data) }; toast(`Fantasma rival: ${name} · ${fmtTime(time)}`); } catch { rival = null; toast('Ese fantasma no se puede cargar'); }
+}
+// Publica mi récord en la tabla mundial (si está activado) con el fantasma de mi mejor vuelta
+async function publishRecord(total) {
+  if (!settings.board) return;
+  const g = store.get(`jt-${MAP}-ghost`, '');
+  let packed = '';
+  try { packed = g ? packGhost(decodeGhost(g)) : ''; } catch { packed = ''; }
+  try {
+    const n = await board.publish(MAP, PID, { v: 1, n: settings.name, t: Math.round(total * 1000), c: settings.color, d: Date.now(), g: packed });
+    if (n) toast('Récord subido a la tabla mundial');
+  } catch { /* sin conexión: no pasa nada */ }
+}
+// Tabla mundial del mapa o circuito actual
+async function openBoard(from = 'menu') {
+  boardBack = from;
+  const title = track.custom ? track.custom.name : track.map.name;
+  $('boardTitle').textContent = `Récords mundiales · ${title}`;
+  $('boardMsg').textContent = 'Cargando…';
+  $('boardTable').innerHTML = '';
+  showOverlay('board');
+  const key = MAP;
+  let list;
+  try { list = await board.fetch(key, boardCheck); } catch (err) { $('boardMsg').textContent = 'No se ha podido conectar con los servidores. Prueba más tarde.'; return; }
+  if (key !== MAP || $('board').hidden) return;
+  const T = $('boardTable'), mine = list.findIndex(e => e.pid === PID);
+  $('boardMsg').textContent = list.length ? `${list.length} ${list.length === 1 ? 'piloto' : 'pilotos'}${mine >= 0 ? ` · tú vas ${mine + 1}º` : rec.total ? ' · tu récord aún no está subido' : ''}` : 'Aún no hay tiempos: ¡sé el primero!';
+  T.innerHTML = '<tr><td>#</td><td>Piloto</td><td>Tiempo</td><td></td><td></td></tr>';
+  list.slice(0, 30).forEach((e, i) => {
+    const tr = document.createElement('tr'), md = track.custom ? null : medalOf(track.map, e.t / 1000);
+    if (e.pid === PID) tr.className = 'me';
+    for (const txt of [`${i + 1}º`, cleanName(e.n), fmtTime(e.t / 1000), md ? md[1] : '']) { const td = document.createElement('td'); td.textContent = txt; tr.appendChild(td); }
+    const td = document.createElement('td');
+    if (typeof e.g === 'string' && e.g.length > 20 && e.pid !== PID) {
+      const b = document.createElement('button'); b.textContent = '👻 Correr contra él'; b.className = 'mini';
+      b.onclick = () => { try { setRival(cleanName(e.n), e.t / 1000, unpackGhost(e.g)); startTrial(); } catch { toast('Ese fantasma no se puede cargar'); } };
+      td.appendChild(b);
+    }
+    tr.appendChild(td); T.appendChild(tr);
+  });
+}
+let boardBack = 'menu';
+// Enlace para retar a un amigo: lleva mi fantasma, mi tiempo y, si es un circuito propio, el circuito
+function challengeLink() {
+  const g = store.get(`jt-${MAP}-ghost`, '');
+  if (!g || !rec.total) return null;
+  const data = JSON.stringify({ v: 1, k: MAP, m: track.map.id, c: courseCode || '', n: settings.name, t: Math.round(rec.total * 1000), g: packGhost(decodeGhost(g)) });
+  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(data))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${location.origin}${location.pathname}?reto=${b64}`;
 }
 
 function onLap(e) {
@@ -905,21 +1061,27 @@ function onFinish(e) {
     return;
   }
   hud.center('¡META!', '', 2.4);
-  const total = e.time, newTotal = !rec.total || total < rec.total, newStyle = style.total > rec.style;
-  if (newTotal) { rec.total = total; store.set(`jt-${MAP}-total`, total.toFixed(3)); }
+  const total = e.time, prevTotal = rec.total, newTotal = !rec.total || total < rec.total, newStyle = style.total > rec.style;
+  if (newTotal) { rec.total = total; store.set(`jt-${MAP}-total`, total.toFixed(3)); store.set(`jt-${MAP}-splits`, JSON.stringify(run.splits)); publishRecord(total); }
+  if (prevTotal && run.splits.length) showSplit(total - prevTotal);
+  const md = track.custom ? null : medalOf(track.map, total), best = track.custom ? null : medalOf(track.map, rec.total);
+  const nextM = track.custom ? null : [...MEDALS].reverse().find(([k]) => track.map.medals[k] < rec.total);
+  const medalLine = track.custom ? '' : `<p style="text-align:center;font-weight:800">${md ? `${md[1]} Medalla de ${md[2].toLowerCase()}` : 'Sin medalla'}${nextM ? ` · siguiente: ${nextM[1]} ${fmtTime(track.map.medals[nextM[0]])} (te faltan ${(rec.total - track.map.medals[nextM[0]]).toFixed(3).replace('.', ',')} s)` : best ? ' · ¡tienes todas!' : ''}</p>`;
   if (newStyle) { rec.style = style.total; store.set(`jt-${MAP}-style`, String(style.total)); }
   const laps = race.lapTimes.map((t, i) => `Vuelta ${i + 1}: <b>${fmtTime(t)}</b>${t === race.best ? ' ⭐' : ''}`).join('<br>');
   $('resTitle').textContent = newTotal ? '¡Nuevo récord!' : '¡Meta!';
   $('resTable').innerHTML = '';
   $('resWait').textContent = '';
-  $('resBody').innerHTML = `<p style="font-size:30px;text-align:center;margin:6px 0;color:var(--gold)"><b>${fmtTime(total)}</b></p>
+  $('resBody').innerHTML = `<p style="font-size:30px;text-align:center;margin:6px 0;color:var(--gold)"><b>${fmtTime(total)}</b>${prevTotal && !newTotal ? `<small style="font-size:15px;color:#ff8a8a"> +${(total - prevTotal).toFixed(3).replace('.', ',')}</small>` : prevTotal && newTotal ? `<small style="font-size:15px;color:#58f0a0"> −${(prevTotal - total).toFixed(3).replace('.', ',')}</small>` : ''}</p>
+    ${medalLine}
     <p>${laps}</p>
     <p>Estilo: <b>${style.total.toLocaleString('es-ES')}</b> puntos en ${style.count} piruetas${newStyle ? ' · ¡récord de estilo!' : ''}</p>
-    <p class="hint">Récords: vuelta ${fmtTime(rec.lap)} · carrera ${fmtTime(rec.total)} · estilo ${rec.style.toLocaleString('es-ES')}. El fantasma cian es tu mejor vuelta.</p>`;
+    <p class="hint">Récords: vuelta ${fmtTime(rec.lap)} · carrera ${fmtTime(rec.total)} · estilo ${rec.style.toLocaleString('es-ES')}. El fantasma cian es tu mejor vuelta${rival && rival.key === MAP ? ` y el rosa, el de ${esc(rival.name)} (${fmtTime(rival.time)})` : ''}. <b>Retroceso</b> (o mantener Select) reinicia al instante.</p>`;
   const btns = $('resBtns');
   btns.innerHTML = '';
-  const trialBtns = editorTest ? [['Volver al editor', () => openEditor(true), true], ['Repetir', () => startTrial(game.trialLaps)], ['Ver repetición', () => startReplay()]]
-    : [['Repetir', () => startTrial(game.trialLaps), true], ['Ver repetición', () => startReplay()], ['Menú', () => toMenu()]];
+  const challenge = async () => { const l = challengeLink(); if (!l) { toast('Aún no tienes récord en este mapa'); return; } try { await navigator.clipboard.writeText(l); toast('Enlace del reto copiado: pásaselo a quien quieras retar'); } catch { prompt('Copia este enlace', l); } };
+  const trialBtns = editorTest ? [['Volver al editor', () => openEditor(true), true], ['Repetir', () => startTrial(game.trialLaps, true)], ['Ver repetición', () => startReplay()]]
+    : [['Repetir', () => startTrial(game.trialLaps, true), true], ['Ver repetición', () => startReplay()], ['Récords mundiales', () => openBoard('results')], ['Retar', challenge], ['Menú', () => toMenu()]];
   for (const [text, fn, primary] of trialBtns) {
     const b = document.createElement('button'); b.textContent = text; if (primary) b.className = 'primary'; b.onclick = fn; btns.appendChild(b);
   }
@@ -930,7 +1092,7 @@ function updateRecords() {
   const parts = [];
   if (rec.lap) parts.push(`vuelta ${fmtTime(rec.lap)}`, `carrera ${fmtTime(rec.total)}`, `estilo ${rec.style.toLocaleString('es-ES')}`);
   if (rec.acro) parts.push(`acrobacias ${rec.acro.toLocaleString('es-ES')}`);
-  $('records').textContent = parts.length ? `Récords${track.custom ? ` en «${track.custom.name}»` : ''} · ${parts.join(' · ')}` : '';
+  $('records').textContent = parts.length ? `Récords en «${track.custom ? track.custom.name : track.map.name}» · ${parts.join(' · ')}` : '';
 }
 
 // ---------- Interacción entre jets: rebufo y empujones ----------
@@ -1061,7 +1223,8 @@ function updateLock(dt) {
 // Bots en combate: persiguen a un rival y, si no, siguen el recorrido
 function botControl(r) {
   const J = r.jet;
-  if (isCombat() && game.phase === 'race') {
+  // en los mapas estrechos no se persigue por libre (se estrellarían): siguen el recorrido y disparan a quien tengan delante
+  if (isCombat() && game.phase === 'race' && !track.map.ai) {
     if ((r.pickT = (r.pickT || 0) - STEP) <= 0 || !r.prey || !r.prey.view.alive || !racers.includes(r.prey)) {
       r.pickT = 4 + Math.random() * 5;
       let best = null, bd = Infinity;
@@ -1245,12 +1408,13 @@ function drawHud(dt) {
   drawStandings(dt);
   // al cruzar la meta el cronómetro se queda quieto con el tiempo final
   const done = race.finished;
-  const lapTime = game.phase === 'countdown' ? 0 : done ? race.lapTimes[race.lapTimes.length - 1] : Math.max(0, game.t - race.lapStart);
+  const notYet = game.phase === 'countdown' || (race.flying && race.lap === 0);
+  const lapTime = notYet ? 0 : done ? race.lapTimes[race.lapTimes.length - 1] : Math.max(0, game.t - race.lapStart);
   const best = game.mode === 'trial' ? [race.best, rec.lap].filter(Boolean) : [race.best].filter(Boolean);
   const tm = game.mode === 'race' && timed(), R = rules();
   const label = tm ? (R.kind === 'combate' ? `COMBATE · ${me.kills} ${me.kills === 1 ? 'DERRIBO' : 'DERRIBOS'}` : 'ACROBACIAS')
     : game.mode === 'lobby' ? (net.online ? `SALA ${net.code}` : 'SALA') : game.mode === 'free' ? 'VUELO LIBRE' : null;
-  hud.setRace({ lap: race.lap || 1, laps: race.laps, time: done ? race.finishTime : Math.max(0, game.t), lapTime: tm ? Math.max(0, R.time - Math.max(0, game.t)) : lapTime, best: tm ? null : best.length ? Math.min(...best) : null, free: !!label, label });
+  hud.setRace({ lap: race.lap || 1, laps: race.laps, time: done ? race.finishTime : notYet ? 0 : Math.max(0, runTime()), lapTime: tm ? Math.max(0, R.time - Math.max(0, game.t)) : lapTime, best: tm ? null : best.length ? Math.min(...best) : null, free: !!label, label });
   drawItemHud(dt);
   updateLock(dt);
   hud.setFlight(jet.alive ? jet.speed * 3.6 : 0, jet.turbo, jet.pos.y, jet.boosting);
@@ -1298,15 +1462,20 @@ function helpLine() {
 // ---------- Clima por tramos, vapor del tren y avisos de viento ----------
 const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 function updateAtmosphere(dt) {
-  const s = game.phase === 'replay' ? replayS : game.phase === 'editor' ? baseS(camera.position) : track.custom ? baseS(jet.pos) : race.s || 0;
-  const nightT = game.forceNight ? 1 : sstep(ZONE.night0 - 5, ZONE.night0 + 55, s) * (1 - sstep(ZONE.night1 - 260, ZONE.night1 + 40, s));
-  const pinkT = game.forceNight ? 0 : sstep(ZONE.pink0 - 160, ZONE.pink0 + 120, s) * (1 - sstep(ZONE.pink1 - 220, ZONE.pink1 + 40, s));
   const k = cam.cut ? 1 : damp(3.5, dt);
-  atm.night += (nightT - atm.night) * k;
-  atm.pink += (pinkT - atm.pink) * k;
-  world.setAtmosphere(atm.night, atm.pink);
+  if (ZONE) {
+    const s = game.phase === 'replay' ? replayS : game.phase === 'editor' ? baseS(camera.position) : track.custom ? baseS(jet.pos) : race.s || 0;
+    const nightT = game.forceNight ? 1 : sstep(ZONE.night0 - 5, ZONE.night0 + 55, s) * (1 - sstep(ZONE.night1 - 260, ZONE.night1 + 40, s));
+    const pinkT = game.forceNight ? 0 : sstep(ZONE.pink0 - 160, ZONE.pink0 + 120, s) * (1 - sstep(ZONE.pink1 - 220, ZONE.pink1 + 40, s));
+    atm.night += (nightT - atm.night) * k;
+    atm.pink += (pinkT - atm.pink) * k;
+    world.setAtmosphere(atm.night, atm.pink);
+  } else {
+    atm.night += ((game.forceNight ? 1 : 0) - atm.night) * k;
+    world.setMapNight(atm.night);
+  }
   world.update(dt, game.clock);
-  clouds.update(scene.fog, atm.night);
+  if (clouds?.mesh.visible) clouds.update(scene.fog, atm.night);
   if ((atm.steamT -= dt) <= 0) { atm.steamT = 0.06; const c = view.trainChimney(); if (c) fx.steam(c); }
   if (playing() && jet.alive && game.phase !== 'countdown') {
     if (jet.thermal > 0.3 && !game.inThermal) { game.inThermal = true; hud.feed('TÉRMICA ↑ +TURBO', 'near'); } else if (!jet.thermal) game.inThermal = false;
@@ -1396,6 +1565,7 @@ function frame(now) {
   if (st.pause && (playing() || game.phase === 'finished')) togglePause();
   if (st.cam && playing()) { cam.mode = CAMS[(CAMS.indexOf(cam.mode) + 1) % CAMS.length]; store.set('jt-cam', cam.mode); cam.cut = true; }
   if (st.respawn && jet.alive && ['race', 'free', 'lobby'].includes(game.phase) && !game.paused) respawn();
+  if (st.restart && game.mode === 'trial' && ['countdown', 'race', 'finished'].includes(game.phase) && !game.paused) { startTrial(game.trialLaps, true); requestAnimationFrame(frame); return; }
   if (st.boost && !prevBoost) game.lastBoostEdge = game.t;
   prevBoost = st.boost;
 
@@ -1448,6 +1618,11 @@ function frame(now) {
     ghostModel.group.visible = ok;
     if (ok) { ghostModel.group.position.set(ghost.pos.x, ghost.pos.y, ghost.pos.z); ghostModel.group.quaternion.set(ghost.q.x, ghost.q.y, ghost.q.z, ghost.q.w); ghostModel.update(dt, 0.6, false); }
   } else ghostModel.group.visible = false;
+  if (game.mode === 'trial' && rival && rival.key === MAP && game.phase === 'race' && race.lap >= 1) {
+    const R2 = rival.player, ok = R2.at(game.t - race.lapStart);
+    rivalModel.group.visible = ok;
+    if (ok) { rivalModel.group.position.set(R2.pos.x, R2.pos.y, R2.pos.z); rivalModel.group.quaternion.set(R2.q.x, R2.q.y, R2.q.z, R2.q.w); rivalModel.update(dt, 0.6, false); }
+  } else rivalModel.group.visible = false;
 
   view.update(game.clock);
   updateAtmosphere(dt);
@@ -1748,8 +1923,9 @@ function openEditor(resume = false) {
   sound.silence();
   if (!resume || !editor.gates.length) {
     let d = null;
-    try { d = JSON.parse(store.get('jt-editor', 'null')); } catch { d = null; }
-    if (d && Array.isArray(d.gates) && d.gates.length) { editor.restore(d); editor.history = []; editor.future = []; editor.lookAtGate(0); } else editor.load({ ...BASE_COURSE, name: 'Mi circuito' });
+    editor.draftKey = `jt-editor-${track.map.id}`;
+    try { d = JSON.parse(store.get(editor.draftKey, track.map.id === 'desierto' ? store.get('jt-editor', 'null') : 'null')); } catch { d = null; }
+    if (d && Array.isArray(d.gates) && d.gates.length) { editor.restore(d); editor.history = []; editor.future = []; editor.lookAtGate(0); } else editor.load({ ...track.map.course, name: 'Mi circuito' });
   }
   editorTest = false;
   clearRacers(); newMe(Infinity);
@@ -1804,7 +1980,7 @@ function renderEditorPanel() {
 function editorCode() {
   if (!editor.info.ok) { toast(editor.info.warnings[0] || 'El circuito aún no está listo'); return null; }
   editor.name = cleanCourseName(editor.name);
-  return encodeCourse(editor.course());
+  return encodeCourse({ ...editor.course(), map: track.map.id });
 }
 function saveCourse(quiet = false) {
   const code = editorCode();
@@ -1848,7 +2024,7 @@ edBtn('edTest', testCourse);
 edBtn('edSave', () => saveCourse());
 edBtn('edShare', shareCourse);
 edBtn('edNew', () => { editor.snapshot(); editor.sel = -1; editor.restore({ name: 'Mi circuito', gates: [], boosts: [] }); toast('Circuito vacío: haz clic para poner la salida'); });
-edBtn('edOrig', () => { editor.load({ ...BASE_COURSE, name: 'Mi circuito' }); toast('Copia del recorrido original'); });
+edBtn('edOrig', () => { editor.load({ ...track.map.course, name: 'Mi circuito' }); toast('Copia del recorrido original'); });
 edBtn('edLoad', () => { const v = $('edList').value; if (!v) return; try { editor.load(decodeCourse(v)); toast(`Abierto «${editor.name}»`); } catch { toast('No se ha podido abrir'); } });
 let removeArmed = 0;
 edBtn('edRemove', () => {
@@ -1890,9 +2066,13 @@ addEventListener('keydown', e => {
 $('btnEditor').onclick = () => openEditor(false);
 $('btnEdBack').onclick = () => { game.paused = false; openEditor(true); };
 $('courseMenu').onchange = e => { selectCourse(e.target.value); toMenu(); };
+$('btnMaps').onclick = openMaps;
+$('btnMapsBack').onclick = () => showOverlay('menu');
+$('btnBoard').onclick = () => openBoard('menu');
+$('boardBack').onclick = () => showOverlay(boardBack);
 
 // ---------- Interfaz ----------
-const OVERLAYS = ['menu', 'settingsPanel', 'controlsPanel', 'pause', 'results', 'lobby', 'hangar'];
+const OVERLAYS = ['board', 'maps', 'menu', 'settingsPanel', 'controlsPanel', 'pause', 'results', 'lobby', 'hangar'];
 function enterHangar() {
   net.close();
   game.phase = 'hangar'; game.mode = null;
@@ -1910,6 +2090,7 @@ function showOverlay(id) {
   if (replay && !inReplay && id !== 'results') { replay.dispose(); replay = null; $('replayBar').hidden = true; $('rpInfo').hidden = true; }
   if (photo.on && !inReplay && !(game.paused && (id === null || id === 'pause'))) { photo.on = false; world.setDof(0, 20); document.body.classList.remove('photo'); renderer.domElement.style.filter = ''; $('vigOverlay')?.remove(); $('photoBar').hidden = true; $('photoHide').hidden = true; }
   $('touch').hidden = !(touchDevice && !id && playing());
+  touchTrial();
   if (game.phase !== 'editor' && editor.active) closeEditorUI();
 }
 function lockIfNeeded() { if (settings.scheme === 'mouse' && !touchDevice) input.requestLock(); }
@@ -1981,6 +2162,12 @@ $('btnCopy').onclick = async () => {
 };
 $('btnStart').onclick = () => { if (!net.online || net.host) startRace(null); };
 $('btnSaveCourse').onclick = () => { try { const c = courses.save(lobby.course); toast(`«${c.name}» guardado en «Mis circuitos»`); } catch { toast('No se ha podido guardar'); } renderLobby(); };
+$('mapSel').onchange = e => {
+  selectMap(e.target.value); applyMap(settings.map);
+  lobby.map = settings.map; lobby.course = settings.course || null; applyCourse(lobby.course); updateRecords();
+  if (game.mode === 'lobby') { const S = track.spline, s0 = track.gates[0].s - 200; me.place(S.pointAt(s0), S.tangentAt(s0), 85, 3); syncAim(); cam.cut = true; }
+  if (net.online) broadcastLobby(); else renderLobby();
+};
 $('courseSel').onchange = e => {
   lobby.course = e.target.value || null;
   selectCourse(lobby.course); applyCourse(lobby.course); updateRecords();
@@ -2017,6 +2204,7 @@ bind('assist', 'assist', el => +el.value);
 bind('invert', 'invert', el => el.checked);
 bind('sens', 'sens', el => +el.value);
 bind('volume', 'volume', el => +el.value, () => sound.setVolume(settings.volume));
+bind('boardOn', 'board', el => el.checked);
 bind('music', 'music', el => +el.value, () => { sound.init(); music.setVolume(settings.music); });
 bind('quality', 'quality', el => el.value, () => location.reload());
 bind('gyro', 'gyro', el => el.checked, () => { if (settings.gyro) input.enableGyro(); else input.gyro.on = false; });
@@ -2029,11 +2217,27 @@ addEventListener('hashchange', setupJoin);
 
 // ---------- Arranque ----------
 renderColors();
+// ?reto=… : el fantasma y el tiempo de un amigo (y su circuito, si es propio) para batirlo
+if (params.has('reto')) {
+  let msg;
+  try {
+    const raw = params.get('reto'), txt = new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((raw.length + 3) % 4)), c => c.charCodeAt(0)));
+    const d = JSON.parse(txt);
+    if (d.c) { const c = courses.save(d.c); selectMap(c.map); applyMap(c.map); selectCourse(d.c); applyCourse(d.c); } else { selectMap(d.m); applyMap(d.m); selectCourse(''); applyCourse(null); }
+    if (d.k !== MAP) throw new Error('otro mapa');
+    setRival(cleanName(d.n), d.t / 1000, unpackGhost(d.g));
+    msg = `Reto de ${cleanName(d.n)} en «${track.custom ? track.custom.name : track.map.name}»: bate ${fmtTime(d.t / 1000)} en la contrarreloj`;
+  } catch { msg = 'El enlace del reto no es válido'; }
+  params.delete('reto');
+  const q = [...params].map(([k, v]) => (v ? `${k}=${encodeURIComponent(v)}` : k)).join('&');
+  history.replaceState(null, '', location.pathname + (q ? `?${q}` : '') + location.hash);
+  setTimeout(() => toast(msg), 900);
+}
 // ?circuito=… : se guarda en «Mis circuitos», queda elegido y se quita de la dirección
 if (params.has('circuito')) {
   const code = params.get('circuito');
   let msg;
-  try { const c = courses.save(code); selectCourse(code); msg = `Circuito «${c.name}» guardado en «Mis circuitos» y elegido`; } catch { msg = 'El enlace del circuito no es válido'; }
+  try { const c = courses.save(code); selectMap(c.map); applyMap(c.map); selectCourse(code); msg = `Circuito «${c.name}» guardado en «Mis circuitos» y elegido`; } catch { msg = 'El enlace del circuito no es válido'; }
   params.delete('circuito');
   const q = [...params].map(([k, v]) => (v ? `${k}=${encodeURIComponent(v)}` : k)).join('&');
   history.replaceState(null, '', location.pathname + (q ? `?${q}` : '') + location.hash);
@@ -2053,7 +2257,7 @@ if (DEBUG) {
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
     startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
     items, recorder, photo, music, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
-    get replay() { return replay; }, editor, courses, applyCourse, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
+    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },

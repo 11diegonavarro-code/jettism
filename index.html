@@ -165,6 +165,23 @@
   #photoHide { position: fixed; left: 16px; bottom: 16px; z-index: 9; }
   body.photo #hud, body.photo #touch { display: none !important; }
 
+  /* Récords */
+  #split { position: absolute; left: 50%; top: 21%; transform: translateX(-50%); font-size: 30px; font-weight: 900; letter-spacing: .02em; opacity: 0; animation: splitIn 2.2s ease-out; }
+  #split.good { color: #58f0a0; } #split.bad { color: #ff7070; }
+  @keyframes splitIn { 0% { opacity: 0; transform: translate(-50%, 8px) scale(.9); } 8% { opacity: 1; transform: translate(-50%, 0) scale(1.08); } 75% { opacity: 1; transform: translate(-50%, 0) scale(1); } 100% { opacity: 0; } }
+  button.mini { padding: 4px 10px; font-size: 12px; border-radius: 10px; }
+  [data-btn=restart] { left: 50%; top: 60px; transform: translateX(-50%); width: 56px !important; height: 44px !important; border-radius: 12px !important; font-size: 20px !important; }
+
+  /* Mapas */
+  .mapCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin: 12px 0; }
+  .mapCard { display: flex; flex-direction: column; align-items: stretch; gap: 6px; text-align: left; padding: 10px; border-radius: 16px; }
+  .mapCard.on { border-color: var(--cyan); box-shadow: 0 0 0 2px var(--cyan) inset; }
+  .mapCard .thumb { height: 130px; border-radius: 10px; background: linear-gradient(135deg, #3a3550, #1a1640) center / cover no-repeat; }
+  .mapCard b { font-size: 17px; }
+  .mapCard small { color: var(--muted); font-weight: 600; font-size: 12.5px; line-height: 1.35; }
+  .mapCard .mrow { font-size: 13px; font-weight: 800; }
+  .mapCard .mrow.dim { color: var(--muted); font-weight: 700; }
+
   /* Editor de circuitos */
   #editor { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
   #editor .panel { position: absolute; left: 16px; top: max(16px, env(safe-area-inset-top)); width: min(340px, calc(100% - 32px)); max-height: calc(100% - 32px); pointer-events: auto; padding: 16px 18px; }
@@ -226,6 +243,7 @@
     <label>Tu nombre <input id="name" maxlength="14" autocomplete="off" aria-label="Tu nombre"></label>
     <div class="swatches" id="colors" aria-label="Color de tu jet"></div>
     <div id="joinBox" hidden><button id="btnJoin" class="primary big">Unirse a la sala <b id="joinCode"></b></button></div>
+    <div class="courseRow"><span style="color:var(--muted);font-weight:700">Mapa</span><b id="mapName" style="flex:1"></b><button id="btnMaps">Cambiar de mapa</button></div>
     <div class="courseRow"><span style="color:var(--muted);font-weight:700">Circuito</span><select id="courseMenu" aria-label="Circuito"></select></div>
     <button id="btnTrial" class="primary big">Contrarreloj · 3 vueltas</button>
     <div class="row">
@@ -238,6 +256,7 @@
     </div>
     <div class="row">
       <button id="btnFree">Vuelo libre</button>
+      <button id="btnBoard">Récords mundiales</button>
     </div>
     <div class="row">
       <button id="btnSettings">Ajustes</button>
@@ -248,7 +267,7 @@
     </details>
     <p id="menuMsg" class="msg"></p>
     <p id="records" class="records"></p>
-    <p class="hint">Mapa: <b>Desierto de los sueños</b>. Busca el atajo del cajón gigante en el acantilado, aprovecha las térmicas sobre el lago y cruza la puerta hacia la noche. Con el editor puedes trazar tus propios circuitos por el mismo mapa y compartirlos con un enlace. Modos: carrera, carrera con objetos, copa de tres carreras, combate aéreo y acrobacias. Al acabar puedes ver la repetición y sacar fotos.</p>
+    <p class="hint" id="mapBlurb"></p>
     <p class="hint">Sin cookies ni analítica: tus ajustes, récords y fantasma se guardan solo en este navegador. En el modo online se comparten tu nombre, tu color y tu posición con la sala. <a href="privacidad.html" style="color:var(--cyan)">Privacidad</a></p>
   </div>
 </div>
@@ -262,6 +281,7 @@
     <label>Sensibilidad del ratón <input type="range" id="sens" min="0.4" max="2.5" step="0.05"></label>
     <label>Volumen <input type="range" id="volume" min="0" max="1" step="0.05"></label>
     <label>Música <input type="range" id="music" min="0" max="1" step="0.05"></label>
+    <label>Subir mis récords a la tabla mundial <input type="checkbox" id="boardOn"></label>
     <label>Gráficos <select id="quality"><option value="ultra">Ultra</option><option value="alta">Altos</option><option value="baja">Rendimiento</option></select></label>
     <label id="gyroRow" hidden>Giroscopio (inclinar el móvil) <input type="checkbox" id="gyro"></label>
     <p class="hint">Ayudas: <b>Media</b> nivela las alas al soltar, avisa antes de chocar y marca la siguiente puerta. <b>Alta</b> además corrige un poco el rumbo para no chocar. Cambiar los gráficos recarga la página.</p>
@@ -283,6 +303,8 @@
       Stick izquierdo: dirigir · <b>RT</b>/<b>LT</b> gas y freno · <b>LB</b>/<b>RB</b> timón · <b>A</b> turbo · <b>X</b> + stick: pirueta · <b>B</b>/<b>Y</b> objetos · stick derecho pulsado: cámara · stick izquierdo pulsado: mirar atrás · cruceta abajo: humo · stick derecho: mirar alrededor · <b>Start</b> pausa · <b>Select</b> volver al recorrido
       <h3>Objetos y combate</h3>
       <kbd>F</kbd> o clic izquierdo: usar el objeto (en combate, disparar misil) · <kbd>G</kbd> o clic derecho: en combate, usar el objeto · Mando: <b>B</b> y <b>Y</b> (la cámara pasa al stick derecho pulsado, y mirar atrás al izquierdo pulsado). Un misil se esquiva con bengalas, haciendo la cobra o pasando muy cerca de un obstáculo.
+      <h3>Contrarreloj y récords</h3>
+      <kbd>Retroceso</kbd> reinicia al instante (mando: mantén <b>Select</b>; móvil: botón ↺). En cada puerta ves el parcial contra tu récord (verde si vas mejor). Cada mapa tiene medallas de bronce, plata, oro y autor. Tus récords se suben a la tabla mundial con tu fantasma, y desde allí puedes correr contra el de cualquiera, o retar a un amigo con un enlace.
       <h3>Repetición y modo foto</h3>
       En los resultados, «Ver repetición»: <kbd>Espacio</kbd> pausa · <kbd>←</kbd>/<kbd>→</kbd> 5 s atrás o adelante · <kbd>A</kbd>/<kbd>D</kbd> otro piloto · <kbd>C</kbd> cámara (automática, persecución, órbita, pie de pista, pasada, desde arriba, morro y ala) · <kbd>F</kbd> modo foto · <kbd>Esc</kbd> salir. El modo foto también está en la pausa (sin conexión): arrastra para girar, rueda para acercar, filtros y «Guardar foto» en PNG.
       <h3>Editor de circuitos</h3>
@@ -330,6 +352,25 @@
   </div>
 </div>
 
+<div id="board" class="overlay centered" hidden>
+  <div class="panel" style="width:min(620px,100%)">
+    <h2 id="boardTitle">Récords mundiales</h2>
+    <p id="boardMsg" class="msg"></p>
+    <table id="boardTable" class="combos results"></table>
+    <p class="hint">Tabla pública: la puede ver cualquiera que tenga el juego y no se comprueba que los tiempos sean legítimos. Con 👻 corres contra el fantasma de ese piloto. Se puede desactivar en Ajustes.</p>
+    <div class="row"><button id="boardBack" class="primary">Volver</button></div>
+  </div>
+</div>
+
+<div id="maps" class="overlay centered" hidden>
+  <div class="panel" style="width:min(960px,100%)">
+    <h2>Mapas</h2>
+    <p class="hint" style="margin-top:0">Cada mapa guarda tu mejor tiempo, tu fantasma y tu medalla. Bate el oro… y luego el tiempo del autor.</p>
+    <div id="mapCards" class="mapCards"></div>
+    <div style="text-align:center"><button id="btnMapsBack" class="link">Volver</button></div>
+  </div>
+</div>
+
 <div id="lobby" class="overlay" hidden>
   <div class="panel">
     <h2 id="lobbyTitle">Sala</h2>
@@ -341,6 +382,7 @@
     <p id="courseInfo" class="hint"></p>
     <div style="text-align:center"><button id="btnSaveCourse" class="link" hidden>Guardar este circuito en «Mis circuitos»</button></div>
     <div id="hostOpts">
+      <label>Mapa <select id="mapSel"></select></label>
       <label>Circuito <select id="courseSel"></select></label>
       <label>Modo <select id="mode">
         <option value="carrera">Carrera</option>
@@ -450,6 +492,7 @@
   <div id="tl" class="sh"><div id="lap"></div><div id="time"></div><div id="lapTime"></div><div id="best"></div></div>
   <div id="tr" class="sh"><small>ESTILO</small><div id="style">0</div><div id="chain"></div><div id="chainTrack"><div id="chainBar"></div></div><ol id="standings"></ol></div>
   <div id="place" class="sh"></div>
+  <div id="split" class="sh"></div>
   <div id="tags"></div>
   <div id="section" class="sh"></div>
   <div id="feed"></div>
@@ -478,6 +521,7 @@
   <button data-btn="brake">FRENO</button>
   <button data-btn="cam">CÁM</button>
   <button data-btn="smoke">HUMO</button>
+  <button data-btn="restart" hidden aria-label="Reiniciar">↺</button>
   <button data-btn="item" hidden>OBJETO</button>
   <button data-btn="item2" hidden>OBJETO 2</button>
   <button data-btn="pause">❚❚</button>

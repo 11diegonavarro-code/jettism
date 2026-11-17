@@ -6,7 +6,9 @@ const CHORDS = [[50, 57, 60, 64, 65], [46, 53, 57, 60, 62], [41, 53, 57, 60, 64]
 const hz = m => 440 * 2 ** ((m - 69) / 12);
 
 export class Music {
-  constructor(sound) { this.sound = sound; this.mode = 'menu'; this.volume = 0.35; this.on = false; this.step = 0; this.timer = null; }
+  constructor(sound) { this.sound = sound; this.mode = 'menu'; this.volume = 0.35; this.on = false; this.step = 0; this.timer = null; this.setTheme(null); }
+  // Tema de cada mapa: { bpm, chords } (null: el del desierto)
+  setTheme(t) { this.chords = t?.chords || CHORDS; this.dur = 60 / (t?.bpm || BPM) / 4; if (this.delay) this.delay.delayTime.value = this.dur * 3; }
 
   start() {
     const S = this.sound;
@@ -16,7 +18,7 @@ export class Music {
       this.out = ctx.createGain(); this.out.gain.value = 0;
       this.out.connect(S.master);
       // eco para el arpegio
-      this.delay = ctx.createDelay(1); this.delay.delayTime.value = STEP * 3;
+      this.delay = ctx.createDelay(1); this.delay.delayTime.value = this.dur * 3;
       this.fb = ctx.createGain(); this.fb.gain.value = 0.38;
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
       this.delay.connect(lp).connect(this.fb).connect(this.delay);
@@ -51,10 +53,10 @@ export class Music {
   schedule() {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
-    while (this.next < ctx.currentTime + 0.35) { this.play(this.step, this.next); this.step++; this.next += STEP; }
+    while (this.next < ctx.currentTime + 0.35) { this.play(this.step, this.next); this.step++; this.next += this.dur; }
   }
   play(i, t) {
-    const bar = Math.floor(i / 16), s = i % 16, chord = CHORDS[Math.floor(bar / 2) % CHORDS.length], race = this.mode === 'race';
+    const bar = Math.floor(i / 16), s = i % 16, chord = this.chords[Math.floor(bar / 2) % this.chords.length], race = this.mode === 'race', STEP = this.dur;
     if (s === 0 && bar % 2 === 0) this.pad(chord, t, STEP * 32);
     // bajo: notas largas en el menú, corcheas con acento en carrera
     if (race ? s % 2 === 0 : s === 0 || s === 10) this.bass(chord[0] - 12 + (race && s % 8 === 6 ? 12 : 0), t, race ? STEP * 1.6 : STEP * 7, race ? 0.22 : 0.16);

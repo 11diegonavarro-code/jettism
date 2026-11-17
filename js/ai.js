@@ -4,6 +4,9 @@ import { V3, clamp } from './math.js';
 import { steerToward } from './flight.js';
 
 const _p = new V3();
+// Ajuste por mapa: en los abiertos mira lejos y esquiva fuerte; en los estrechos se fía más de la línea (ya comprobada libre)
+const OPEN = { look: [45, 125], k: 0.85, reach: 1.4, margin: 7, push: 45, mover: 55, back: 30 };
+export const AI_NARROW = { look: [40, 90], k: 0.7, reach: 0.8, margin: 4.2, push: 0, mover: 26, back: 12, flat: true };
 
 export class Autopilot {
   // dir: 1 en el sentido normal del recorrido, −1 al revés. trickPool: piruetas que puede hacer
@@ -13,31 +16,40 @@ export class Autopilot {
   }
 
   // Empujón para esquivar: obstáculos fijos en la dirección a la que va, y móviles donde estarán al llegar
-  updateAvoid(jet, dir, reach, dt, now) {
+  // open: esquivar como en un mapa abierto aunque el mapa sea estrecho (al perseguir a un rival se sale de la línea)
+  updateAvoid(jet, dir, reach, dt, now, open = false) {
     if ((this.avoidT -= dt) > 0) return;
     this.avoidT = 0.08;
-    const T = this.track, v = jet.speed || 1, vdir = jet.vel.clone().normalize();
-    const hit = T.raycast(jet.pos, dir, Math.min(reach, v * 1.4), 7) || T.raycast(jet.pos, vdir, v * 1.2, 6);
-    let push = null;
-    if (hit && hit.col) push = T.normal(hit.col, hit.p).scale(45 * clamp(1.4 - hit.t / v, 0.3, 1.2));
-    else if (hit && jet.pos.y < 60) push = new V3(0, 40, 0); // el suelo
+    const T = this.track, A = open ? OPEN : T.map?.ai || OPEN, v = jet.speed || 1, vdir = jet.vel.clone().normalize();
+    const hit = T.raycast(jet.pos, dir, Math.min(reach, v * A.reach), A.margin) || T.raycast(jet.pos, vdir, v * A.reach * 0.85, A.margin - 1);
+    let push = null, upOnly = false;
+    if (hit && hit.col && A.push > 0) push = T.normal(hit.col, hit.p).scale(A.push * clamp(1.4 - hit.t / v, 0.3, 1.2));
+    else if (hit && !hit.col && jet.pos.y < 60 && A.push > 0) push = new V3(0, 40, 0); // el suelo
     for (const tau of [0.5, 1, 1.5, 2]) {
       const pr = T.predictMovers(_p.copy(jet.pos).addScaled(jet.vel, tau), now + tau, now);
-      if (pr.col && pr.d < 16) { push = (push || new V3()).addScaled(pr.n, 55 * (1.2 - tau / 2.5)); break; }
+      // empujón proporcional a lo que hay que apartarse (en los mapas estrechos, uno fijo grande lleva contra la pared de enfrente)
+      if (pr.col && pr.d < 16) {
+        // algunos obstáculos dicen cómo se esquivan (las aspas que barren el paso, por encima)
+        const k = Math.min(A.mover, (16 - pr.d) * 1.6 + 8) * (1.2 - tau / 2.5);
+        if (pr.m?.aiDodge === 'up') { push = (push || new V3()).add(new V3(0, 16, 0)); upOnly = true; } else push = (push || new V3()).addScaled(pr.n, k);
+        break;
+      }
     }
+    // solo se esquiva de lado o en vertical respecto al recorrido (un empujón hacia atrás no sirve: en un arco, la normal del muro mira hacia delante)
+    if (push) { const tg = T.spline.tangentAt(this.s); push.addScaled(tg, -push.dot(tg)); if (A.flat && !upOnly) push.y = 0; }
     this.blocked = !!push;
     if (push) this.avoid.copy(push); else this.avoid.scale(0.6);
-    this.clear = !this.blocked && !T.raycast(jet.pos, vdir, v * 1.6, 9);
+    this.clear = !this.blocked && !T.raycast(jet.pos, vdir, v * A.reach * 1.15, A.margin + 2);
   }
 
   control(jet, dt, out, now = 0) {
-    const T = this.track, S = T.spline, D = this.dir;
+    const T = this.track, S = T.spline, D = this.dir, A = T.map?.ai || OPEN;
     const n = S.nearest(jet.pos, this.hint);
     this.hint = n.idx; this.s = n.s;
-    const look = clamp(jet.speed * 0.85, 45, 125);
+    const look = clamp(jet.speed * A.k, A.look[0], A.look[1]);
     const target = S.pointAt(n.s + look * D);
     // si se ha alejado del recorrido, vuelve hacia él
-    if (n.d > 30) target.lerp(S.pointAt(n.s + 40 * D), clamp((n.d - 30) / 60, 0, 0.7));
+    if (n.d > A.back) target.lerp(S.pointAt(n.s + 40 * D), clamp((n.d - A.back) / 60, 0, 0.7));
     this.updateAvoid(jet, new V3().subVectors(target, jet.pos).normalize(), look + 30, dt, now);
     target.add(this.avoid);
     steerToward(jet, new V3().subVectors(target, jet.pos).normalize(), out);
@@ -62,7 +74,7 @@ export class Autopilot {
   chase(jet, dt, out, now, tp, tv) {
     const dist = jet.pos.dist(tp), lead = Math.min(1.2, dist / 240);
     const target = new V3(tp.x + tv.x * lead, Math.max(45, tp.y + tv.y * lead), tp.z + tv.z * lead);
-    this.updateAvoid(jet, new V3().subVectors(target, jet.pos).normalize(), Math.min(dist, 200), dt, now);
+    this.updateAvoid(jet, new V3().subVectors(target, jet.pos).normalize(), Math.min(dist, 200), dt, now, true);
     target.add(this.avoid);
     steerToward(jet, new V3().subVectors(target, jet.pos).normalize(), out);
     out.throttle = dist > 250 ? 1 : 0.2;

@@ -78,7 +78,7 @@ export class Items {
     for (const g of this.rings) this.group.remove(g.g);
     this.rings = [];
     const T = this.track, S = T.spline, cp = S.cpS;
-    const spots = T.custom ? [0.16, 0.35, 0.54, 0.72, 0.88].map(f => f * T.length)
+    const spots = T.custom || T.map.id !== 'desierto' ? [0.16, 0.35, 0.54, 0.72, 0.88].map(f => f * T.length)
       : [cp[2] + 120, cp[GATE.contrafuerte] + 230, cp[GATE.pendulos] + 150, cp[GATE.ballena] + 300, cp[GATE.lago] + 150];
     for (const s of spots) {
       const f = S.frame(s);

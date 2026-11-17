@@ -97,6 +97,21 @@ export function noiseTexture({ size = 512, kind = 'sand', seed = 3 }) {
       const n = fbm(size, 2, 6, 5, seed + 3), m = fbm(size, 8, 8, 4, seed + 4);
       return normalTex(size, (x, y) => n[y * size + x] * 1.4 + m[y * size + x] * 0.8 + Math.sin((y / size) * Math.PI * 2 * 16 + n[y * size + x] * 4) * 0.25, 3.5);
     }
+    case 'concrete': {
+      // hormigón visto: paneles del encofrado, pocos latiguillos, manchas grandes y chorretones de agua
+      const n = fbm(size, 3, 3, 5, seed + 6), m = fbm(size, 12, 2, 4, seed + 7), st = fbm(size, 20, 1, 3, seed + 8), big = fbm(size, 2, 2, 3, seed + 10);
+      const A = hex('#86837c'), B = hex('#c8c4ba'), boards = 6, R = rng(seed + 9), tone = Array.from({ length: boards * 2 }, () => 0.93 + R() * 0.12);
+      return canvasTex(size, (x, y) => {
+        const v = n[y * size + x], by = (y / size) * boards, bi = Math.floor(by), bf = by - bi, bx = Math.floor((x / size) * 2);
+        let c = mix(A, B, sstep(0.15, 0.9, v * 0.7 + big[y * size + x] * 0.3)).map(k => k * tone[bi * 2 + bx]);
+        const seam = 1 - sstep(0.0, 0.018, Math.min(bf, 1 - bf)), vseam = 1 - sstep(0.0, 0.006, Math.abs(((x / size) * 2) % 1 - 0.5) - 0.494);
+        c = c.map(k => k * (1 - seam * 0.2 - vseam * 0.12));
+        const hx = ((x / size) * 2) % 1, hole = 1 - sstep(0.006, 0.014, Math.hypot((hx - 0.25) / 2, (bf - 0.5) / boards));
+        c = c.map(k => k * (1 - hole * 0.45));
+        const streak = sstep(0.5, 0.85, st[y * size + x]) * (0.4 + 0.6 * m[y * size + x]);
+        return c.map(k => k * (1 - streak * 0.3) * (0.97 + Math.random() * 0.05));
+      });
+    }
     case 'wood': {
       const n = fbm(size, 2, 8, 4, seed + 5), A = hex('#4a2a18'), B = hex('#7d4b2b');
       return canvasTex(size, (x, y) => { const v = n[y * size + x]; const r = 0.5 + 0.5 * Math.sin(2 * Math.PI * ((y / size) * 14 + v * 3)); return mix(A, B, r * 0.7 + v * 0.3); });

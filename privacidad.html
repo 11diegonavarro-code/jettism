@@ -20,10 +20,10 @@
 <body>
 <main>
   <h1>Privacidad</h1>
-  <p>Jettism es un juego gratuito sin anuncios ni pagos. No pide registro y no recoge datos personales. Jugando solo no se envía nada; en el modo online, lo justo para jugar (ver abajo).</p>
+  <p>Jettism es un juego gratuito sin anuncios ni pagos. No pide registro y no recoge datos personales. Jugando solo, lo único que sale de tu navegador es tu récord para la tabla mundial (se puede desactivar); en el modo online, lo justo para jugar (ver abajo).</p>
 
   <h2>Qué se guarda y dónde</h2>
-  <p>Tus ajustes (controles, ayudas, volumen, música, gráficos), el nombre de piloto que escribas, tu jet del hangar, tus récords, el fantasma de tu mejor vuelta y los circuitos que crees en el editor se guardan solo en el almacenamiento local de tu navegador. No se envían a ningún sitio y nadie más puede verlos. Para borrarlos, elimina los datos de este sitio en la configuración del navegador.</p>
+  <p>Tus ajustes (controles, ayudas, volumen, música, gráficos), el mapa elegido, el nombre de piloto que escribas, tu jet del hangar, tus récords y parciales, el fantasma de tu mejor vuelta, los circuitos que crees en el editor y un identificador aleatorio de jugador se guardan en el almacenamiento local de tu navegador. Solo salen de él en los casos que se explican abajo (modo online y tabla mundial). No se envían a ningún sitio y nadie más puede verlos. Para borrarlos, elimina los datos de este sitio en la configuración del navegador.</p>
 
   <h2>Cookies y analítica</h2>
   <p>El juego no usa cookies, ni herramientas de analítica, ni rastreadores de ningún tipo.</p>
@@ -44,6 +44,10 @@
     <li>Si la red bloquea la conexión directa, los mensajes de la sala pasan por <b>servidores MQTT públicos</b> (HiveMQ, EMQX y Mosquitto). Cualquiera que conozca el código de la sala podría leerlos, así que no escribas datos personales en tu nombre de piloto.</li>
   </ul>
   <p>El código de la sala va en el enlace que compartes con tus amigos. Al cerrar la pestaña dejas la sala.</p>
+
+  <h2>Tabla mundial de récords</h2>
+  <p>Cuando bates tu récord en la contrarreloj de un mapa o circuito, el juego publica en los mismos servidores MQTT públicos (HiveMQ, EMQX y Mosquitto) tu nombre de piloto, tu color, tu tiempo, la fecha y el fantasma de tu vuelta (el recorrido que hiciste), junto a un identificador aleatorio que se crea en tu navegador. Esa tabla la puede leer cualquiera que tenga el juego, se queda guardada en esos servidores mientras ellos la conserven y no se comprueba que los tiempos sean legítimos. No pongas datos personales en tu nombre de piloto. Puedes desactivarlo en Ajustes («Subir mis récords a la tabla mundial»); desactivarlo no borra lo que ya se haya subido.</p>
+  <p>Con el botón «Retar» se crea un enlace con tu nombre, tu tiempo y tu fantasma dentro, que solo ve quien lo reciba.</p>
 
   <h2>Compartir circuitos</h2>
   <p>Al compartir un circuito del editor, el circuito entero (su nombre y la posición de sus puertas y anillos) va dentro del enlace; no se sube a ningún servidor. Quien abre el enlace lo guarda en su propio navegador. No pongas datos personales en el nombre del circuito.</p>

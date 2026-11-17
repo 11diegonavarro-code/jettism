@@ -20,7 +20,7 @@ export const DIFFICULTY = {
 
 export class Racer {
   // cfg: configuración del hangar (piezas, pintura, calcomanías…); las piezas cambian las estadísticas del jet
-  constructor(scene, track, { id, name, cfg, bot = false, owned = false, me = false, laps = 3, diff = 'normal', dir = 1 }) {
+  constructor(scene, track, { id, name, cfg, bot = false, owned = false, me = false, laps = 3, diff = 'normal', dir = 1, flying = false }) {
     Object.assign(this, { id, name, bot, owned, me, scene, dir, L: track.length });
     const D = DIFFICULTY[diff] || DIFFICULTY.normal;
     this.cfg = sanitizeCfg(cfg);
@@ -28,7 +28,7 @@ export class Racer {
     const stats = statMultipliers(this.cfg);
     if (bot) stats.speed *= D.speed;
     this.jet = new Jet(stats);
-    this.race = new Race(track, laps, dir);
+    this.race = new Race(track, laps, dir, flying);
     this.ap = bot ? new Autopilot(track, { skill: D.skill, dir }) : null;
     this.style = new Style();
     this.manual = new ManualDetector();

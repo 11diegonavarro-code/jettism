@@ -15,14 +15,15 @@ function cross(a, b, p, n, r) {
 
 export class Race {
   // dir: 1 en el sentido normal, −1 al revés (las puertas se recorren en orden inverso y se cruzan del otro lado)
-  constructor(track, laps = 3, dir = 1) {
-    this.track = track; this.laps = laps; this.dir = dir;
+  // flying: salida lanzada (contrarreloj de los mapas nuevos): el crono empieza al cruzar la salida, no al aparecer
+  constructor(track, laps = 3, dir = 1, flying = false) {
+    this.track = track; this.laps = laps; this.dir = dir; this.flying = flying;
     const n = track.gates.length;
     this.order = dir > 0 ? [...Array(n).keys()] : [0, ...Array.from({ length: n - 1 }, (_, i) => n - 1 - i)];
     this.reset();
   }
   reset(startTime = 0) {
-    this.k = 0; this.next = 0; this.lap = 0; this.lapStart = startTime; this.lapTimes = [];
+    this.k = 0; this.next = 0; this.lap = 0; this.lapStart = startTime; this.runStart = startTime; this.lapTimes = [];
     this.finished = false; this.finishTime = null; this.lastGate = 0; this.has = false;
     this.prev = new V3(); this.s = 0; this.hint = -1; this.missed = false;
   }
@@ -37,13 +38,13 @@ export class Race {
       this.lastGate = this.next;
       ev.push({ type: 'gate', i: this.next, ring: dist < g.ring });
       if (this.next === 0) {
-        if (this.lap === 0) this.lap = 1;
+        if (this.lap === 0) { this.lap = 1; if (this.flying) this.lapStart = this.runStart = now; }
         else {
           const t = now - this.lapStart;
           this.lapTimes.push(t);
           ev.push({ type: 'lap', lap: this.lap, time: t });
           this.lapStart = now;
-          if (this.lap >= this.laps) { this.finished = true; this.finishTime = now; ev.push({ type: 'finish', time: now }); } else this.lap++;
+          if (this.lap >= this.laps) { this.finished = true; this.finishTime = now - this.runStart; ev.push({ type: 'finish', time: now - this.runStart }); } else this.lap++;
         }
       }
       this.k = (this.k + 1) % this.order.length;

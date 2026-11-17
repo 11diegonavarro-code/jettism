@@ -31,8 +31,8 @@ const boxMesh = (c, mat) => {
 export class CourseView {
   constructor(scene, track, quality) {
     this.track = track; this.quality = quality;
-    this.group = new THREE.Group();
-    scene.add(this.group);
+    this.root = new THREE.Group();
+    scene.add(this.root);
     const marbleTex = noiseTexture({ size: 512, kind: 'marble' });
     // Materiales estándar: los «physical» (barniz, brillo) costaban un 25 % de fps en la gráfica integrada
     this.mat = {
@@ -56,13 +56,22 @@ export class CourseView {
     this.mat.rockSmall = this.mat.rock.clone();
     this.mat.rockSmall.map = this.mat.rock.map.clone(); this.mat.rockSmall.map.repeat.set(2, 1); this.mat.rockSmall.map.needsUpdate = true;
     this.mat.rockSmall.normalMap = this.mat.rock.normalMap.clone(); this.mat.rockSmall.normalMap.repeat.set(2, 1); this.mat.rockSmall.normalMap.needsUpdate = true;
-    this.movers = [];
-    this.thermalMat = null;
-    this.buildStatics();
-    this.buildMovers();
+    this.load(track.map);
+  }
+
+  // Dibuja el mapa que tenga cargado la pista (el desierto aquí mismo; los demás, con su propio constructor de vista)
+  load(map) {
+    if (this.group) {
+      this.mapView?.dispose?.();
+      this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+      this.root.remove(this.group);
+    }
+    this.group = new THREE.Group();
+    this.root.add(this.group);
+    this.movers = []; this.thermalMat = null; this.doorVeil = null; this.courseGroup = null; this.mapView = null;
+    if (map.id === 'desierto') { this.buildStatics(); this.buildMovers(); this.buildHorizon(); } else this.mapView = map.buildView(this);
+    if (this.track.thermals.length) this.buildThermals();
     this.buildGates();
-    this.buildThermals();
-    this.buildHorizon();
   }
 
   buildStatics() {
@@ -415,6 +424,7 @@ export class CourseView {
       }
     }
     for (const g of this.boostRings) g.children[1].rotation.z = t * 2;
+    this.mapView?.update?.(t);
     if (this.thermalMat) this.thermalMat.uniforms.uTime.value = t;
     if (this.doorVeil) this.doorVeil.material.uniforms.uTime.value = t;
   }

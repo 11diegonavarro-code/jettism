@@ -167,7 +167,7 @@ function stick(g, targets, origin, dir, size, tex, color, rot = 0, rough = 0.4) 
   return m;
 }
 
-export function buildJet(cfg = defaultCfg(), { ghost = false, lite = false, pilotName = '' } = {}) {
+export function buildJet(cfg = defaultCfg(), { ghost = false, ghostColor = 0x7fe9ff, lite = false, pilotName = '' } = {}) {
   const g = new THREE.Group();
   const P = cfg.paint, FIN = FINISHES[P.finish] || FINISHES.brillo;
   const paint = c => new THREE.MeshStandardMaterial({ color: c, metalness: FIN.metal, roughness: FIN.rough, envMapIntensity: FIN.env });
@@ -293,7 +293,7 @@ export function buildJet(cfg = defaultCfg(), { ghost = false, lite = false, pilo
   strobe.castShadow = false;
 
   if (ghost) {
-    const gm = new THREE.MeshBasicMaterial({ color: 0x7fe9ff, transparent: true, opacity: 0.28, depthWrite: false });
+    const gm = new THREE.MeshBasicMaterial({ color: ghostColor, transparent: true, opacity: 0.28, depthWrite: false });
     g.traverse(o => { if (o.isMesh) { o.material = gm; o.castShadow = false; } });
   } else {
     // Calcomanías: se buscan con un rayo desde fuera y se proyectan sobre la superficie

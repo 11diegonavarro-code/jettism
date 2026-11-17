@@ -39,7 +39,7 @@ function skyMaterial(Q) {
     uniforms: {
       uZenith: { value: DAY.zenith }, uMid: { value: DAY.mid }, uHorizon: { value: DAY.horizon }, uGround: { value: DAY.ground }, uSun: { value: DAY.sun },
       nZenith: { value: NIGHT.zenith }, nMid: { value: NIGHT.mid }, nHorizon: { value: NIGHT.horizon }, nGround: { value: NIGHT.ground },
-      uSunDir: { value: SUN.clone() }, uMoonDir: { value: MOON.clone() }, uNight: { value: 0 }, uTime: { value: 0 },
+      uSunDir: { value: SUN.clone() }, uMoonDir: { value: MOON.clone() }, uNight: { value: 0 }, uTime: { value: 0 }, uCloudCov: { value: 0 }, uSunDisc: { value: 1 },
     },
     vertexShader: `varying vec3 vDir;
       void main() {
@@ -48,7 +48,7 @@ function skyMaterial(Q) {
         gl_Position = p.xyww;
       }`,
     fragmentShader: `uniform vec3 uZenith, uMid, uHorizon, uGround, uSun, uSunDir, uMoonDir, nZenith, nMid, nHorizon, nGround;
-      uniform float uNight, uTime; varying vec3 vDir;
+      uniform float uNight, uTime, uCloudCov, uSunDisc; varying vec3 vDir;
       // hash sin sin(): con números grandes, sin() pierde precisión en la gráfica y el ruido sale a bloques
       float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
       float noise(vec2 p) {
@@ -74,7 +74,7 @@ function skyMaterial(Q) {
           if (h > 0.012) {
             vec2 uv = plane * 0.9 + vec2(uTime * 0.006, uTime * 0.002);
             float c = fbm(uv);
-            cov = smoothstep(0.5, 0.78, c) * smoothstep(0.012, 0.14, h);
+            cov = smoothstep(0.5 - uCloudCov, 0.78 - uCloudCov * 0.6, c) * smoothstep(0.012, 0.14, h);
             #if CLOUD_LIGHT == 1
             float lit = clamp(0.55 + (c - fbm(uv + uSunDir.xz * 0.07)) * 3.5, 0.0, 1.0);
             #else
@@ -85,7 +85,7 @@ function skyMaterial(Q) {
             cloud += uSun * pow(sd, 10.0) * (1.0 - cov) * cov * 2.2;
             day = mix(day, cloud, cov * 0.92);
           }
-          day += uSun * smoothstep(0.99935, 0.9997, sd) * 26.0 * (1.0 - cov);
+          day += uSun * smoothstep(0.99935, 0.9997, sd) * 26.0 * (1.0 - cov) * uSunDisc;
           col = day;
         }
         // ---- noche: cielo de pinceladas en remolino, estrellas y luna ----
@@ -192,6 +192,9 @@ export function createWorld(renderer, qualityName) {
   ground.material.normalMap.repeat.set(900, 900);
   ground.receiveShadow = true;
   scene.add(ground);
+  const sandMat = ground.material;
+  let groundMat = null, envCustom = null, custom = false;
+  const base = { exposure: 1, sun: 3, hemi: 0.6, fog: new THREE.Color(), night: 0 };
 
   // Lago espejo: reflejo real del mundo en Ultra y Altos; en Rendimiento refleja solo el cielo
   const waves = waveNormals(), mirrorHooks = {};
@@ -235,9 +238,11 @@ export function createWorld(renderer, qualityName) {
     composer.addPass(new OutputPass());
     if (!Q.msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
     finalPass = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uHeatA: { value: new THREE.Vector4() }, uHeatB: { value: new THREE.Vector4() }, uHeatW: { value: new THREE.Vector2() }, uTime: { value: 0 }, uAspect: { value: 1 } },
+      uniforms: { uSat: { value: 1.12 }, uContrast: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGrain: { value: 0 }, uKeepRed: { value: 0 }, uVigMin: { value: 0.74 }, uGT: { value: 0 },
+        tDiffuse: { value: null }, uBlur: { value: 0 }, uHeatA: { value: new THREE.Vector4() }, uHeatB: { value: new THREE.Vector4() }, uHeatW: { value: new THREE.Vector2() }, uTime: { value: 0 }, uAspect: { value: 1 } },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; uniform float uSat, uContrast, uGrain, uKeepRed, uVigMin, uGT; uniform vec3 uTint; varying vec2 vUv;
+        float gHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
         // distorsión de calor: un cono que sale de cada tobera, ondulando, más ancho y más flojo cuanto más lejos
         vec2 heat(vec2 uv, vec4 seg) {
           vec2 a = seg.xy, ab = seg.zw - seg.xy;
@@ -262,8 +267,13 @@ export function createWorld(renderer, qualityName) {
             col.rgb = acc / 6.0;
           }
           float l = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
-          col.rgb = mix(vec3(l), col.rgb, 1.12);
-          col.rgb *= mix(0.74, 1.0, smoothstep(0.85, 0.28, length(c * vec2(1.0, 0.82))));
+          // saturación (los rojos pueden conservar el color aunque el resto vaya a blanco y negro)
+          float red = clamp((col.r - max(col.g, col.b)) * 4.0, 0.0, 1.0);
+          col.rgb = mix(vec3(l), col.rgb, mix(uSat, 1.3, red * uKeepRed));
+          col.rgb = (col.rgb - 0.5) * uContrast + 0.5;
+          col.rgb *= uTint;
+          if (uGrain > 0.0) col.rgb += (gHash(gl_FragCoord.xy + fract(uGT * 7.13) * 917.0) - 0.5) * uGrain;
+          col.rgb *= mix(uVigMin, 1.0, smoothstep(0.85, 0.28, length(c * vec2(1.0, 0.82))));
           gl_FragColor = col;
         }`,
     });
@@ -306,12 +316,74 @@ export function createWorld(renderer, qualityName) {
       dof.uniforms.maxblur.value = 0.004 + amount * 0.012;
       return true;
     },
+    // Ambiente de un mapa (null: el del desierto, con su clima por tramos). a: { sky, sunDir, sunColor, sunIntensity,
+    // hemiSky, hemiGround, hemiIntensity, fog: { color, density }, exposure, ground: { color, map, repeat, roughness } | false, grade }
+    setMap(a) {
+      const U = skyMat.uniforms, G = finalPass?.uniforms;
+      custom = !!a;
+      if (!a) {
+        U.uZenith.value = DAY.zenith; U.uMid.value = DAY.mid; U.uHorizon.value = DAY.horizon; U.uGround.value = DAY.ground; U.uSun.value = DAY.sun;
+        U.uCloudCov.value = 0; U.uSunDisc.value = 1; U.uSunDir.value.copy(SUN);
+        ground.material = sandMat; ground.visible = true; lake.visible = shore.visible = true;
+        hemi.intensity = 0.55; scene.environment = env.day;
+        renderer.toneMappingExposure = 1;
+        if (G) { G.uSat.value = 1.12; G.uContrast.value = 1; G.uTint.value.set(1, 1, 1); G.uGrain.value = 0; G.uKeepRed.value = 0; G.uVigMin.value = 0.74; }
+        atm.night = atm.pink = -1;
+        this.setAtmosphere(0, 0);
+        return;
+      }
+      const sk = a.sky || {};
+      U.uZenith.value = C(sk.zenith || '#7d8590'); U.uMid.value = C(sk.mid || '#b9bec4'); U.uHorizon.value = C(sk.horizon || '#e8e6e0'); U.uGround.value = C(sk.ground || '#8a8780'); U.uSun.value = C(sk.sun || '#fff4e0');
+      U.uNight.value = 0; U.uCloudCov.value = sk.clouds ?? 0; U.uSunDisc.value = sk.sunDisc ?? 1;
+      lightDir.set(...(a.sunDir || [0.3, 0.8, -0.4])).normalize();
+      U.uSunDir.value.copy(lightDir);
+      // luz ambiental a partir de este cielo
+      const envScene = new THREE.Scene();
+      envScene.add(new THREE.Mesh(sky.geometry, skyMat));
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      envCustom?.dispose();
+      envCustom = pmrem.fromScene(envScene, 0.02).texture;
+      pmrem.dispose();
+      scene.environment = envCustom;
+      sun.color.set(a.sunColor || '#ffffff'); sun.intensity = a.sunIntensity ?? 3;
+      hemi.color.set(a.hemiSky || '#c8ccd2'); hemi.groundColor.set(a.hemiGround || '#5a5852'); hemi.intensity = a.hemiIntensity ?? 0.6;
+      scene.fog.color.set(a.fog?.color || '#d8d6d0'); scene.fog.density = a.fog?.density ?? 0.0006;
+      renderer.toneMappingExposure = a.exposure ?? 1;
+      lake.visible = shore.visible = false;
+      if (a.ground === false) ground.visible = false;
+      else {
+        const g = a.ground || {};
+        groundMat?.dispose();
+        groundMat = new THREE.MeshStandardMaterial({ color: g.color || '#777', roughness: g.roughness ?? 0.9, map: g.map || null });
+        if (g.map) { g.map.repeat.set(g.repeat || 400, g.repeat || 400); }
+        ground.material = groundMat; ground.visible = true;
+      }
+      Object.assign(base, { exposure: renderer.toneMappingExposure, sun: sun.intensity, hemi: hemi.intensity, night: 0 });
+      base.fog.copy(scene.fog.color);
+      if (G) {
+        const d = a.grade || {};
+        G.uSat.value = d.sat ?? 1.1; G.uContrast.value = d.contrast ?? 1; G.uTint.value.set(...(d.tint || [1, 1, 1])); G.uGrain.value = d.grain ?? 0;
+        G.uKeepRed.value = d.keepRed ?? 0; G.uVigMin.value = d.vignette ?? 0.74;
+      }
+    },
+    // Noche en un mapa nuevo (la carrera nocturna de la copa): cielo de noche, menos luz y niebla oscura
+    setMapNight(k) {
+      if (!custom || Math.abs(k - base.night) < 0.002) return;
+      base.night = k;
+      skyMat.uniforms.uNight.value = k;
+      renderer.toneMappingExposure = base.exposure * (1 - 0.4 * k);
+      sun.intensity = base.sun * (1 - 0.75 * k);
+      hemi.intensity = base.hemi * (1 - 0.35 * k);
+      scene.fog.color.copy(base.fog).lerp(FOG.night, k);
+    },
     update(dt, t) {
       skyMat.uniforms.uTime.value = t;
+      if (finalPass) finalPass.uniforms.uGT.value = t;
       if (water) water.material.uniforms.time.value += dt * 0.6;
     },
     // Atmósfera por tramos: night 0..1 (tras la puerta), pink 0..1 (niebla rosa del bosque)
     setAtmosphere(night, pink) {
+      if (custom) return;
       if (Math.abs(night - atm.night) < 0.002 && Math.abs(pink - atm.pink) < 0.002) return;
       atm.night = night; atm.pink = pink;
       skyMat.uniforms.uNight.value = night;

@@ -136,6 +136,7 @@ export class Input {
     st.trickDown = e('Space'); st.trickHeld = k('Space');
     st.dirCurrent = this.keyDirHeld();
     st.cam = e('KeyC'); st.lookBack = k('KeyV'); st.pause = e('Escape') || e('KeyP'); st.respawn = e('KeyR');
+    st.restart = e('Backspace');
     st.smoke = k('KeyH');
     st.fire = e('KeyF') || e('Mouse0'); st.use2 = e('KeyG') || e('Mouse2');
     st.any = this.edges.size > 0;
@@ -161,7 +162,10 @@ export class Input {
         st.fire = st.fire || (b(1) && !was(1));
         st.lookBack = st.lookBack || b(10);
         st.pause = st.pause || (b(9) && !was(9));
-        st.respawn = st.respawn || (b(8) && !was(8));
+        // Select: pulsado corto vuelve al recorrido; mantenido 0,6 s reinicia la contrarreloj
+        if (b(8) && !was(8)) { this.selT = performance.now(); this.selUsed = false; }
+        if (b(8) && !this.selUsed && performance.now() - this.selT > 600) { st.restart = true; this.selUsed = true; }
+        if (!b(8) && was(8) && !this.selUsed) st.respawn = true;
         st.smoke = st.smoke || b(13);
         st.lookX = rx; st.lookY = ry;
         const d = this.stickDir(lx, ly * inv, this.padDir);
@@ -187,6 +191,7 @@ export class Input {
       st.cam = T.edges.has('cam'); st.pause = T.edges.has('pause');
       st.smoke = T.buttons.has('smoke');
       st.fire = T.edges.has('item'); st.use2 = T.edges.has('item2');
+      st.restart = T.edges.has('restart');
       const d = this.stickDir(sx, sy * inv, this.touchDir);
       if (d && d !== this.touchDir) st.dirs.push(d);
       this.touchDir = d;

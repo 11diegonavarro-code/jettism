@@ -44,3 +44,36 @@ export function decodeGhost(str) {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Float32Array(bytes.buffer);
 }
+
+// ---------- Fantasma compacto, para compartirlo (enlace o tabla mundial) ----------
+// 15 muestras por segundo: posición en cuartos de metro (int16) y giro en 8 bits por componente. Unos 150 bytes por segundo.
+const b64url = bytes => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64url = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4)), c => c.charCodeAt(0));
+export function packGhost(f32, hz = 15) {
+  const P = new GhostPlayer(f32), dur = P.duration, n = Math.floor(dur * hz) + 1;
+  if (P.n < 2) return '';
+  const buf = new ArrayBuffer(6 + n * 10), v = new DataView(buf), q8 = x => Math.max(-127, Math.min(127, Math.round(x * 127)));
+  v.setUint8(0, 1); v.setUint8(1, hz); v.setUint32(2, n, true);
+  for (let i = 0; i < n; i++) {
+    P.at(Math.min(i / hz, dur));
+    const o = 6 + i * 10, p = P.pos, q = P.q;
+    v.setInt16(o, Math.round(p.x * 4), true); v.setInt16(o + 2, Math.round(p.y * 4), true); v.setInt16(o + 4, Math.round(p.z * 4), true);
+    v.setInt8(o + 6, q8(q.x)); v.setInt8(o + 7, q8(q.y)); v.setInt8(o + 8, q8(q.z)); v.setInt8(o + 9, q8(q.w));
+  }
+  return b64url(new Uint8Array(buf));
+}
+export function unpackGhost(str) {
+  const b = unb64url(String(str)), v = new DataView(b.buffer);
+  if (v.getUint8(0) !== 1) throw new Error('fantasma desconocido');
+  const hz = v.getUint8(1), n = v.getUint32(2, true);
+  if (!hz || n < 2 || n > 20000 || b.length < 6 + n * 10) throw new Error('fantasma roto');
+  const out = new Float32Array(n * STRIDE);
+  for (let i = 0; i < n; i++) {
+    const o = 6 + i * 10, k = i * STRIDE;
+    let qx = v.getInt8(o + 6) / 127, qy = v.getInt8(o + 7) / 127, qz = v.getInt8(o + 8) / 127, qw = v.getInt8(o + 9) / 127;
+    const l = Math.hypot(qx, qy, qz, qw) || 1;
+    out[k] = i / hz; out[k + 1] = v.getInt16(o, true) / 4; out[k + 2] = v.getInt16(o + 2, true) / 4; out[k + 3] = v.getInt16(o + 4, true) / 4;
+    out[k + 4] = qx / l; out[k + 5] = qy / l; out[k + 6] = qz / l; out[k + 7] = qw / l;
+  }
+  return out;
+}

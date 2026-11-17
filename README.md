@@ -13,6 +13,10 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
   - Humo y llama de color, casco del piloto, y número y nombre en la cola.
   - Cada motor suena distinto, y tu jet llega así a la sala online.
 
+- **Mapas:**
+  - **Desierto de los sueños:** surrealista, abierto, con contrarreloj de 3 vueltas.
+  - **Laberinto de hormigón:** brutalista, estrecho y técnico, con contrarreloj de 1 vuelta. Arcos que atravesar, rampas curvas, escalinata gigante, sótano de pilares y pozo de luz. Pistones, compuertas y aspas giratorias.
+- **Modo récords:** salida lanzada, reinicio instantáneo (Retroceso), parciales en cada puerta contra tu récord, medallas de bronce, plata, oro y autor, fantasma de tu mejor vuelta, retos a un amigo con un enlace que lleva tu fantasma, y una tabla mundial pública con el fantasma de cada piloto.
 - Vuelo arcade con derrape aéreo, turbo, roces y estampido sónico.
 - Diez piruetas, por combo (Espacio + dirección) o hechas a mano, con cadenas de estilo.
 - Contrarreloj de 3 vueltas con fantasma de tu mejor vuelta, y vuelo libre.
