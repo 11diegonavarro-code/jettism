@@ -23,7 +23,7 @@
   <p>Jettism es un juego gratuito sin anuncios ni pagos. No pide registro y no recoge datos personales. Jugando solo no se envía nada; en el modo online, lo justo para jugar (ver abajo).</p>
 
   <h2>Qué se guarda y dónde</h2>
-  <p>Tus ajustes (controles, ayudas, volumen, gráficos), el nombre de piloto que escribas, tus récords y el fantasma de tu mejor vuelta se guardan solo en el almacenamiento local de tu navegador. No se envían a ningún sitio y nadie más puede verlos. Para borrarlos, elimina los datos de este sitio en la configuración del navegador.</p>
+  <p>Tus ajustes (controles, ayudas, volumen, música, gráficos), el nombre de piloto que escribas, tu jet del hangar, tus récords, el fantasma de tu mejor vuelta y los circuitos que crees en el editor se guardan solo en el almacenamiento local de tu navegador. No se envían a ningún sitio y nadie más puede verlos. Para borrarlos, elimina los datos de este sitio en la configuración del navegador.</p>
 
   <h2>Cookies y analítica</h2>
   <p>El juego no usa cookies, ni herramientas de analítica, ni rastreadores de ningún tipo.</p>
@@ -36,7 +36,7 @@
   </ul>
 
   <h2>Jugar online con amigos</h2>
-  <p>Solo si creas una sala o entras en una, el juego envía a los demás jugadores de esa sala tu nombre de piloto, el color de tu jet y tu posición en el aire mientras jugáis. No se guarda nada en ningún servidor.</p>
+  <p>Solo si creas una sala o entras en una, el juego envía a los demás jugadores de esa sala tu nombre de piloto, cómo has preparado tu jet en el hangar (piezas, colores, calcomanías, número y nombre de la cola), tu posición en el aire mientras jugáis y, si eres el anfitrión y eliges un circuito propio, ese circuito. No se guarda nada en ningún servidor.</p>
   <p>Para que los navegadores se encuentren y se conecten, se usan estos servicios públicos, que ven tu dirección IP:</p>
   <ul>
     <li><b>PeerJS</b> (servidor gratuito de conexión de peerjs.com), para la conexión directa entre navegadores.</li>
@@ -44,6 +44,9 @@
     <li>Si la red bloquea la conexión directa, los mensajes de la sala pasan por <b>servidores MQTT públicos</b> (HiveMQ, EMQX y Mosquitto). Cualquiera que conozca el código de la sala podría leerlos, así que no escribas datos personales en tu nombre de piloto.</li>
   </ul>
   <p>El código de la sala va en el enlace que compartes con tus amigos. Al cerrar la pestaña dejas la sala.</p>
+
+  <h2>Compartir circuitos</h2>
+  <p>Al compartir un circuito del editor, el circuito entero (su nombre y la posición de sus puertas y anillos) va dentro del enlace; no se sube a ningún servidor. Quien abre el enlace lo guarda en su propio navegador. No pongas datos personales en el nombre del circuito.</p>
 
   <a class="back" href="./">Volver al juego</a>
 </main>

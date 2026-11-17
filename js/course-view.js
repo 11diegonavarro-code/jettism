@@ -299,25 +299,35 @@ export class CourseView {
     }
   }
 
+  // Puertas y anillos de turbo del circuito actual (se rehacen al cambiar de circuito)
   buildGates() {
     const glow = (c, k) => new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color(c), emissiveIntensity: k, roughness: 0.4, metalness: 0.2 });
-    this.gateMat = { next: glow('#3ee8ff', 4.5), after: glow('#fff2d6', 1.6), idle: glow('#d9ab52', 0.35), start: glow('#ffffff', 2.2) };
+    if (!this.gateMat) {
+      this.gateMat = { next: glow('#3ee8ff', 4.5), after: glow('#fff2d6', 1.6), idle: glow('#d9ab52', 0.35), start: glow('#ffffff', 2.2) };
+      this.boostMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color('#ff8a2a'), emissiveIntensity: 5, roughness: 0.4 });
+      this.boostDisc = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff9a40').multiplyScalar(0.6), transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, blending: THREE.AdditiveBlending });
+    }
+    if (this.courseGroup) {
+      this.courseGroup.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+      this.group.remove(this.courseGroup);
+    }
+    this.courseGroup = new THREE.Group();
+    this.group.add(this.courseGroup);
     this.gates = this.track.gates.map(g => {
       const m = new THREE.Mesh(new THREE.TorusGeometry(g.ring, g.i === 0 ? 1.6 : 1.0, 12, 72), g.i === 0 ? this.gateMat.start : this.gateMat.idle);
       m.position.copy(v3(g.p));
       m.quaternion.setFromUnitVectors(ZV, v3(g.t).normalize());
-      this.group.add(m);
+      this.courseGroup.add(m);
       return m;
     });
-    const bm = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color('#ff8a2a'), emissiveIntensity: 5, roughness: 0.4 });
-    const disc = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff9a40').multiplyScalar(0.6), transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, blending: THREE.AdditiveBlending });
+    const bm = this.boostMat, disc = this.boostDisc;
     this.boostRings = this.track.boostRings.map(r => {
       const g = new THREE.Group();
       g.add(new THREE.Mesh(new THREE.TorusGeometry(r.r, 0.7, 10, 48), bm));
       g.add(new THREE.Mesh(new THREE.CircleGeometry(r.r - 0.5, 40), disc));
       g.position.copy(v3(r.p));
       g.quaternion.setFromUnitVectors(ZV, v3(r.t).normalize());
-      this.group.add(g);
+      this.courseGroup.add(g);
       return g;
     });
   }

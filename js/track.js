@@ -27,6 +27,14 @@ const CP = [
   [-280, 70, 120],
   [-90, 62, 150],
 ];
+// Tamaños de puerta del editor (radio del anillo y del círculo en el que cuenta)
+export const GATE_SIZES = { s: { ring: 13, cp: 60 }, m: { ring: 18, cp: 75 }, l: { ring: 25, cp: 95 } };
+// El recorrido original en el formato del editor: puertas [x, y, z, tamaño] y anillos de turbo [puerta, fracción del tramo]
+export const BASE_COURSE = {
+  name: 'Desierto de los sueños',
+  gates: CP.map((c, i) => [c[0], c[1], c[2], i === 0 || c[3] === 'horquilla' ? 'l' : 'm']),
+  boosts: [[0, 0.55], [7, 0.62], [11, 0.4], [17, 0.5]],
+};
 export const GATE = Object.fromEntries(CP.map((p, i) => [p[3], i]).filter(([n]) => n));
 export const SECTIONS = [['bosque', 'Bosque de torres'], ['acantilado', 'Acantilado de cajones'], ['escaleras', 'Escaleras al cielo'], ['pendulos', 'Los péndulos'], ['puerta', 'La puerta'], ['ballena', 'Ballena de nubes'], ['lago', 'Lago espejo']].map(([k, n]) => [GATE[k], n]);
 export const JET_RADIUS = 2.5;
@@ -143,6 +151,8 @@ const yawFromRight = R => Math.atan2(-R.z, R.x);
 // Caja alineada con los ejes a partir de sus esquinas
 const boxFrom = (x0, y0, z0, x1, y1, z1) => ({ type: 'box', c: new V3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), h: new V3(Math.abs(x1 - x0) / 2, Math.abs(y1 - y0) / 2, Math.abs(z1 - z0) / 2), yaw: 0 });
 
+export { Spline };
+
 export class Track {
   constructor(seed = 7) {
     this.spline = new Spline(CP);
@@ -154,6 +164,28 @@ export class Track {
     for (const c of this.statics) this.insert(c);
     this.movers.forEach((m, i) => m.cols.forEach(c => { c.grp = 'M' + i; }));
     this.update(0);
+    // el recorrido original, para volver a él después de un circuito propio
+    this.base = { spline: this.spline, length: this.length, gates: this.gates, boostRings: this.boostRings };
+    this.custom = null;
+  }
+
+  // Circuito propio (o null para el original): cambia solo las puertas y los anillos de turbo; el mapa y sus obstáculos no se mueven
+  setCourse(course) {
+    if (!course) {
+      Object.assign(this, { spline: this.base.spline, length: this.base.length, gates: this.base.gates, boostRings: this.base.boostRings, custom: null });
+      return;
+    }
+    const S = new Spline(course.gates.map(g => [g[0], g[1], g[2]]));
+    const cp = S.cpS, L = S.length;
+    const gates = course.gates.map((g, i) => {
+      const z = GATE_SIZES[g[3]] || GATE_SIZES.m;
+      return { i, s: cp[i], p: S.pointAt(cp[i]), t: S.tangentAt(cp[i]), ring: z.ring, cp: z.cp };
+    });
+    const boostRings = (course.boosts || []).filter(b => b[0] < gates.length).map(([i, f]) => {
+      const a = cp[i], b = i + 1 < cp.length ? cp[i + 1] : L, s = a + (b - a) * f;
+      return { s, p: S.pointAt(s), t: S.tangentAt(s), r: 7 };
+    });
+    Object.assign(this, { spline: S, length: L, gates, boostRings, custom: course });
   }
 
   insert(c) {
@@ -167,7 +199,7 @@ export class Track {
   }
 
   // s del principio de un tramo con nombre
-  sOf(name, offset = 0) { return this.spline.wrap(this.spline.cpS[GATE[name]] + offset); }
+  sOf(name, offset = 0) { const S = this.base?.spline || this.spline; return S.wrap(S.cpS[GATE[name]] + offset); }
 
   build() {
     const S = this.spline, R = this.rand, cp = S.cpS;
@@ -430,6 +462,16 @@ export class Track {
   }
 
   // Distancia a la superficie más cercana (sin contar el suelo)
+  // Solo lo fijo (sin obstáculos móviles): para el análisis del editor
+  nearestStatic(p, radius = 60) {
+    const ix = Math.floor(p.x / CELL), iz = Math.floor(p.z / CELL), reach = Math.ceil(radius / CELL);
+    let d = Infinity;
+    for (let a = -reach; a <= reach; a++) for (let b = -reach; b <= reach; b++) {
+      const list = this.grid.get(key(ix + a, iz + b));
+      if (list) for (const c of list) { const v = sdf(c, p); if (v < d) d = v; }
+    }
+    return d;
+  }
   nearest(p, radius = 60) {
     const list = this.candidates(p, radius, this._cand || (this._cand = []));
     let d = Infinity, col = null;

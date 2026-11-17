@@ -37,24 +37,11 @@ export class Items {
     this.missiles = []; this.mines = []; this.rings = []; this.on = false;
     this.group = new THREE.Group();
     scene.add(this.group);
-    // anillos de objeto: tres juntos en varios tramos
-    const S = track.spline, cp = S.cpS;
-    const spots = [cp[2] + 120, cp[GATE.contrafuerte] + 230, cp[GATE.pendulos] + 150, cp[GATE.ballena] + 300, cp[GATE.lago] + 150];
-    const ringMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color('#b884ff'), emissiveIntensity: 2.4, roughness: 0.4 });
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0xffcf6b, emissive: new THREE.Color('#ff9a40'), emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 });
-    const ringGeo = new THREE.TorusGeometry(6, 0.55, 10, 40), boxGeo = new THREE.IcosahedronGeometry(1.8, 0);
-    for (const s of spots) {
-      const f = S.frame(s);
-      for (const off of [-16, 0, 16]) {
-        const p = f.P.clone().addScaled(f.R, off), g = new THREE.Group();
-        const ring = new THREE.Mesh(ringGeo, ringMat), box = new THREE.Mesh(boxGeo, boxMat);
-        g.add(ring, box);
-        g.position.set(p.x, p.y, p.z);
-        g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(f.T.x, f.T.y, f.T.z));
-        this.group.add(g);
-        this.rings.push({ p, t: f.T.clone(), r: 8, g, box });
-      }
-    }
+    // anillos de objeto: tres juntos en varios tramos (se recolocan al cambiar de circuito)
+    this.ringMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color('#b884ff'), emissiveIntensity: 2.4, roughness: 0.4 });
+    this.boxMat = new THREE.MeshStandardMaterial({ color: 0xffcf6b, emissive: new THREE.Color('#ff9a40'), emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 });
+    this.ringGeo = new THREE.TorusGeometry(6, 0.55, 10, 40); this.boxGeo = new THREE.IcosahedronGeometry(1.8, 0);
+    this.layout();
     // piezas reutilizables
     this.mats = {
       missile: new THREE.MeshStandardMaterial({ color: 0xe8e2d8, metalness: 0.6, roughness: 0.3 }),
@@ -84,6 +71,27 @@ export class Items {
     this.warm.position.set(0, -500, 0);
     this.group.add(this.warm);
     this.time = 0;
+  }
+
+  // Coloca los anillos de objeto en el circuito actual: en el original, en sus tramos; en uno propio, repartidos
+  layout() {
+    for (const g of this.rings) this.group.remove(g.g);
+    this.rings = [];
+    const T = this.track, S = T.spline, cp = S.cpS;
+    const spots = T.custom ? [0.16, 0.35, 0.54, 0.72, 0.88].map(f => f * T.length)
+      : [cp[2] + 120, cp[GATE.contrafuerte] + 230, cp[GATE.pendulos] + 150, cp[GATE.ballena] + 300, cp[GATE.lago] + 150];
+    for (const s of spots) {
+      const f = S.frame(s);
+      for (const off of [-16, 0, 16]) {
+        const p = f.P.clone().addScaled(f.R, off), g = new THREE.Group();
+        const box = new THREE.Mesh(this.boxGeo, this.boxMat);
+        g.add(new THREE.Mesh(this.ringGeo, this.ringMat), box);
+        g.position.set(p.x, p.y, p.z);
+        g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(f.T.x, f.T.y, f.T.z));
+        this.group.add(g);
+        this.rings.push({ p, t: f.T.clone(), r: 8, g, box });
+      }
+    }
   }
 
   enable(on) { this.on = on; this.group.visible = on; if (!on) this.clear(); }

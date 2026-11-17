@@ -235,12 +235,26 @@ export function createWorld(renderer, qualityName) {
     composer.addPass(new OutputPass());
     if (!Q.msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
     finalPass = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 } },
+      uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uHeatA: { value: new THREE.Vector4() }, uHeatB: { value: new THREE.Vector4() }, uHeatW: { value: new THREE.Vector2() }, uTime: { value: 0 }, uAspect: { value: 1 } },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; varying vec2 vUv;
+        // distorsión de calor: un cono que sale de cada tobera, ondulando, más ancho y más flojo cuanto más lejos
+        vec2 heat(vec2 uv, vec4 seg) {
+          vec2 a = seg.xy, ab = seg.zw - seg.xy;
+          float L2 = dot(ab, ab);
+          if (L2 < 1e-7) return vec2(0.0);
+          float h = clamp(dot(uv - a, ab) / L2, 0.0, 1.0);
+          vec2 d = (uv - (a + ab * h)) * vec2(uAspect, 1.0);
+          float w = uHeatW.x * (0.5 + h * 1.6);
+          float m = smoothstep(w, 0.0, length(d)) * (1.0 - h) * smoothstep(0.0, 0.06, h);
+          float n = sin(uv.y * 190.0 + uTime * 26.0 + sin(uv.x * 70.0) * 2.0) * sin(uv.x * 160.0 - uTime * 21.0);
+          return vec2(n, n * 0.8) * m * uHeatW.y;
+        }
         void main() {
           vec2 c = vUv - 0.5;
-          vec4 col = texture2D(tDiffuse, vUv);
+          vec2 uvH = vUv;
+          if (uHeatW.y > 0.0) uvH += heat(vUv, uHeatA) + heat(vUv, uHeatB);
+          vec4 col = texture2D(tDiffuse, uvH);
           if (uBlur > 0.002) {
             float k = uBlur * 0.055 * smoothstep(0.12, 0.65, length(c));
             vec3 acc = col.rgb;
@@ -273,6 +287,16 @@ export function createWorld(renderer, qualityName) {
     render() { composer ? composer.render() : renderer.render(scene, camera); },
     setPixelRatio(pr) { renderer.setPixelRatio(pr); resize(); },
     setBlur(k) { if (finalPass && Q.blur) finalPass.uniforms.uBlur.value = k; },
+    // Calor del escape: a y b son tramos [x0, y0, x1, y1] en coordenadas de pantalla 0..1 (o null); width en pantalla; strength 0 lo apaga
+    setHeat(a, b, width, strength, t) {
+      if (!finalPass) return;
+      const U = finalPass.uniforms;
+      U.uHeatW.value.set(width, strength);
+      if (!strength) return;
+      a ? U.uHeatA.value.set(...a) : U.uHeatA.value.set(0, 0, 0, 0);
+      b ? U.uHeatB.value.set(...b) : U.uHeatB.value.set(0, 0, 0, 0);
+      U.uTime.value = t; U.uAspect.value = innerWidth / innerHeight;
+    },
     // amount 0..1; focus: distancia en metros a lo que sale nítido
     setDof(amount, focus) {
       if (!dof) return false;

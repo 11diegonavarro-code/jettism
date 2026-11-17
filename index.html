@@ -165,6 +165,28 @@
   #photoHide { position: fixed; left: 16px; bottom: 16px; z-index: 9; }
   body.photo #hud, body.photo #touch { display: none !important; }
 
+  /* Editor de circuitos */
+  #editor { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+  #editor .panel { position: absolute; left: 16px; top: max(16px, env(safe-area-inset-top)); width: min(340px, calc(100% - 32px)); max-height: calc(100% - 32px); pointer-events: auto; padding: 16px 18px; }
+  #editor .panel.folded > :not(.edHead) { display: none; }
+  .edHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .edHead h2 { margin: 0; font-size: 20px; }
+  .edHead button { padding: 4px 10px; }
+  .edGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
+  .edGrid button { padding: 8px 6px; font-size: 13px; border-radius: 12px; }
+  #editor .row { gap: 6px; }
+  #editor .row > button { padding: 10px 6px; font-size: 14px; }
+  #edStats { margin: 6px 0; }
+  #edWarn { margin: 6px 0; padding-left: 18px; color: #ff9a8a; font-size: 13px; font-weight: 700; }
+  #edWarn li.ok { color: #58f0a0; list-style: none; margin-left: -18px; }
+  #edInfo { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); font-size: 13px; font-weight: 800; background: #0008; padding: 6px 12px; border-radius: 12px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
+  #edTouch { position: absolute; right: 16px; bottom: 70px; display: grid; grid-template-columns: repeat(2, 72px); gap: 8px; pointer-events: auto; }
+  #edTouch button { height: 60px; padding: 0; background: #0008; }
+  #edLabels > div { position: fixed; left: 0; top: 0; z-index: 7; font-weight: 900; font-size: 14px; padding: 2px 8px; border-radius: 8px; background: #000a; color: var(--gold); pointer-events: none; will-change: transform; }
+  #edLabels > div.sel { color: var(--cyan); outline: 2px solid var(--cyan); }
+  .courseRow { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+  .courseRow select { flex: 1; min-width: 0; }
+
   /* Táctil */
   #touch { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
   #tStick { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; pointer-events: auto; }
@@ -204,6 +226,7 @@
     <label>Tu nombre <input id="name" maxlength="14" autocomplete="off" aria-label="Tu nombre"></label>
     <div class="swatches" id="colors" aria-label="Color de tu jet"></div>
     <div id="joinBox" hidden><button id="btnJoin" class="primary big">Unirse a la sala <b id="joinCode"></b></button></div>
+    <div class="courseRow"><span style="color:var(--muted);font-weight:700">Circuito</span><select id="courseMenu" aria-label="Circuito"></select></div>
     <button id="btnTrial" class="primary big">Contrarreloj · 3 vueltas</button>
     <div class="row">
       <button id="btnBots">Carrera contra bots</button>
@@ -211,6 +234,9 @@
     </div>
     <div class="row">
       <button id="btnHangar">Hangar</button>
+      <button id="btnEditor">Editor de circuitos</button>
+    </div>
+    <div class="row">
       <button id="btnFree">Vuelo libre</button>
     </div>
     <div class="row">
@@ -222,7 +248,7 @@
     </details>
     <p id="menuMsg" class="msg"></p>
     <p id="records" class="records"></p>
-    <p class="hint">Mapa: <b>Desierto de los sueños</b>. Busca el atajo del cajón gigante en el acantilado, aprovecha las térmicas sobre el lago y cruza la puerta hacia la noche. Modos: carrera, carrera con objetos, copa de tres carreras, combate aéreo y acrobacias. Al acabar puedes ver la repetición y sacar fotos.</p>
+    <p class="hint">Mapa: <b>Desierto de los sueños</b>. Busca el atajo del cajón gigante en el acantilado, aprovecha las térmicas sobre el lago y cruza la puerta hacia la noche. Con el editor puedes trazar tus propios circuitos por el mismo mapa y compartirlos con un enlace. Modos: carrera, carrera con objetos, copa de tres carreras, combate aéreo y acrobacias. Al acabar puedes ver la repetición y sacar fotos.</p>
     <p class="hint">Sin cookies ni analítica: tus ajustes, récords y fantasma se guardan solo en este navegador. En el modo online se comparten tu nombre, tu color y tu posición con la sala. <a href="privacidad.html" style="color:var(--cyan)">Privacidad</a></p>
   </div>
 </div>
@@ -235,6 +261,7 @@
     <label>Invertir cabeceo <input type="checkbox" id="invert"></label>
     <label>Sensibilidad del ratón <input type="range" id="sens" min="0.4" max="2.5" step="0.05"></label>
     <label>Volumen <input type="range" id="volume" min="0" max="1" step="0.05"></label>
+    <label>Música <input type="range" id="music" min="0" max="1" step="0.05"></label>
     <label>Gráficos <select id="quality"><option value="ultra">Ultra</option><option value="alta">Altos</option><option value="baja">Rendimiento</option></select></label>
     <label id="gyroRow" hidden>Giroscopio (inclinar el móvil) <input type="checkbox" id="gyro"></label>
     <p class="hint">Ayudas: <b>Media</b> nivela las alas al soltar, avisa antes de chocar y marca la siguiente puerta. <b>Alta</b> además corrige un poco el rumbo para no chocar. Cambiar los gráficos recarga la página.</p>
@@ -258,6 +285,8 @@
       <kbd>F</kbd> o clic izquierdo: usar el objeto (en combate, disparar misil) · <kbd>G</kbd> o clic derecho: en combate, usar el objeto · Mando: <b>B</b> y <b>Y</b> (la cámara pasa al stick derecho pulsado, y mirar atrás al izquierdo pulsado). Un misil se esquiva con bengalas, haciendo la cobra o pasando muy cerca de un obstáculo.
       <h3>Repetición y modo foto</h3>
       En los resultados, «Ver repetición»: <kbd>Espacio</kbd> pausa · <kbd>←</kbd>/<kbd>→</kbd> 5 s atrás o adelante · <kbd>A</kbd>/<kbd>D</kbd> otro piloto · <kbd>C</kbd> cámara (automática, persecución, órbita, pie de pista, pasada, desde arriba, morro y ala) · <kbd>F</kbd> modo foto · <kbd>Esc</kbd> salir. El modo foto también está en la pausa (sin conexión): arrastra para girar, rueda para acercar, filtros y «Guardar foto» en PNG.
+      <h3>Editor de circuitos</h3>
+      Menú → «Editor de circuitos». Se vuela con <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> y <kbd>Q</kbd>/<kbd>E</kbd>, se arrastra para mirar y se hace clic para poner puertas. Lo que crees se elige en el menú («Circuito») o en la sala online, y tus amigos lo reciben solos al empezar la carrera.
       <h3>Con más jets</h3>
       <b>Rebufo</b>: pégate detrás de otro jet y ganarás velocidad y turbo. <b>Formación</b>: si dos jets cercanos hacen la misma pirueta a la vez, los dos puntúan ×2.
       <h3>Piruetas (Espacio o X + …)</h3>
@@ -278,6 +307,7 @@
       <button id="btnPControls">Controles</button>
     </div>
     <div class="row"><button id="btnPhoto">📷 Modo foto</button></div>
+    <div class="row" id="edBackRow" hidden><button id="btnEdBack" class="primary">Volver al editor</button></div>
     <div style="text-align:center"><button id="btnQuit" class="link">Salir al menú</button></div>
   </div>
 </div>
@@ -308,7 +338,10 @@
       <p class="hint">Pásale este enlace a tus amigos: solo tienen que abrirlo en Chrome y pulsar «Unirse».</p>
     </div>
     <ul id="players"></ul>
+    <p id="courseInfo" class="hint"></p>
+    <div style="text-align:center"><button id="btnSaveCourse" class="link" hidden>Guardar este circuito en «Mis circuitos»</button></div>
     <div id="hostOpts">
+      <label>Circuito <select id="courseSel"></select></label>
       <label>Modo <select id="mode">
         <option value="carrera">Carrera</option>
         <option value="objetos">Carrera con objetos</option>
@@ -346,6 +379,41 @@
 </div>
 <div id="toast"></div>
 
+<div id="editor" hidden>
+  <div class="panel" id="edPanel">
+    <div class="edHead"><h2>Editor de circuitos</h2><button id="edFold" aria-label="Plegar el panel">▾</button></div>
+    <label>Nombre <input id="edName" maxlength="24" autocomplete="off" aria-label="Nombre del circuito"></label>
+    <p id="edStats" class="hint"></p>
+    <ul id="edWarn"></ul>
+    <div class="edGrid">
+      <button id="edAdd" title="Clic en el vacío">➕ Puerta</button><button id="edMove" title="G">✋ Mover</button><button id="edDel" title="Supr">🗑 Borrar</button>
+      <button id="edSize" title="T">⭕ Tamaño</button><button id="edBoost" title="B">🔥 Turbo</button><button id="edGo" title="V">🎯 Ir a ella</button>
+      <button id="edPrev" title="Mayús+Tab">◀ Anterior</button><button id="edUndo" title="Ctrl+Z">↶ Deshacer</button><button id="edNext" title="Tab">Siguiente ▶</button>
+    </div>
+    <label>Distancia de la mira <input id="edDist" type="range" min="15" max="600" step="5" value="90"></label>
+    <div class="row"><button id="edTest" class="primary">▶ Probar</button><button id="edSave">Guardar</button><button id="edShare">Compartir</button></div>
+    <div id="edShareBox" hidden>
+      <p class="hint" style="margin:4px 0">Pasa este enlace: al abrirlo, el circuito se guarda en «Mis circuitos» y queda elegido. También sirve el código suelto (lo que va después de <b>circuito=</b>).</p>
+      <div class="row" style="margin:6px 0"><input id="edLink" readonly aria-label="Enlace del circuito" style="flex:1;min-width:0"><button id="edCopy" class="primary">Copiar</button></div>
+    </div>
+    <details><summary>Mis circuitos, nuevo e importar</summary>
+      <label>Mis circuitos <select id="edList"></select></label>
+      <div class="row"><button id="edLoad">Abrir</button><button id="edRemove">Borrar</button></div>
+      <div class="row"><button id="edNew">Nuevo vacío</button><button id="edOrig">Copiar el original</button></div>
+      <label>Código o enlace <input id="edCode" autocomplete="off" placeholder="Pega aquí" aria-label="Código o enlace de un circuito"></label>
+      <div class="row"><button id="edImport">Importar</button></div>
+    </details>
+    <details><summary>Cómo se usa</summary>
+      <p class="hint">Vuela con <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, sube y baja con <kbd>E</kbd>/<kbd>Q</kbd> (<kbd>Mayús</kbd> para ir rápido) y arrastra para girar la vista. El aro azul es la mira: sigue al ratón, la rueda la aleja o la acerca y se para antes de los obstáculos.</p>
+      <p class="hint">Clic en el vacío: pone una puerta detrás de la elegida. Clic en una puerta: la elige. <kbd>G</kbd> la mueve hasta el siguiente clic, <kbd>T</kbd> cambia su tamaño y <kbd>Supr</kbd> la borra. <kbd>B</kbd> pone o quita un anillo de turbo en el trozo de recorrido más cercano a la mira. <kbd>Tab</kbd> pasa a la siguiente y <kbd>V</kbd> te lleva a ella. <kbd>Ctrl</kbd>+<kbd>Z</kbd> deshace.</p>
+      <p class="hint">La línea es por donde irá la carrera: verde libre, naranja muy justo y rojo choca. Las flechas marcan el sentido; la primera puerta es la salida y la meta.</p>
+    </details>
+    <div style="text-align:center"><button id="edExit" class="link">Salir al menú</button></div>
+  </div>
+  <div id="edInfo"></div>
+  <div id="edTouch" hidden><button data-ed="fwd">▲ Avanzar</button><button data-ed="up">Subir</button><button data-ed="back">▼ Atrás</button><button data-ed="down">Bajar</button></div>
+</div>
+<div id="edLabels" hidden></div>
 <div id="rpInfo" hidden><b>● REPETICIÓN</b><span id="rpName"></span></div>
 <div id="replayBar" hidden>
   <button id="rpPlay" aria-label="Pausar o seguir">⏸</button>

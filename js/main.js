@@ -1,7 +1,10 @@
 // Jettism: vuelo, piruetas, contrarreloj con fantasma, vuelo libre y carreras de hasta 8 (amigos y bots).
 import * as THREE from 'three';
 import { createWorld, QUALITY, SUN } from './world.js';
-import { Track, SECTIONS } from './track.js';
+import { Track, SECTIONS, BASE_COURSE } from './track.js';
+import { Race } from './race.js';
+import { encodeCourse, decodeCourse, courseId, CourseStore, cleanCourseName } from './course.js';
+import { Editor } from './editor.js';
 import { CourseView } from './course-view.js';
 import { Clouds } from './clouds.js';
 import { buildJet } from './jet-model.js';
@@ -11,6 +14,7 @@ import { ComboParser, COMBO_HELP } from './tricks.js';
 import { GhostRecorder, GhostPlayer, encodeGhost, decodeGhost } from './ghost.js';
 import { FX } from './fx.js';
 import { Sound, RemoteVoice } from './audio.js';
+import { Music } from './music.js';
 import { Input } from './input.js';
 import { HUD, fmtTime } from './hud.js';
 import { Net } from './net.js';
@@ -25,7 +29,8 @@ const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
 // la clave del mapa cambia cuando cambia el recorrido, para no mezclar récords y fantasmas de versiones distintas
-const STEP = 1 / 120, MAP = 'desierto2', MAX_JETS = 8;
+const STEP = 1 / 120, BASE_MAP = 'desierto2', MAX_JETS = 8;
+let MAP = BASE_MAP; // clave de los récords y del fantasma: el original o el circuito propio
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
@@ -43,6 +48,7 @@ const settings = {
   invert: store.get('jt-invert', '0') === '1',
   sens: +store.get('jt-sens', 1) || 1,
   volume: +store.get('jt-volume', 0.6),
+  music: +store.get('jt-music', 0.35),
   quality: QUALITY[savedQ] ? savedQ : 'alta',
   gyro: store.get('jt-gyro', '0') === '1',
   name: cleanName(store.get('jt-name', 'Piloto' + Math.floor(Math.random() * 90 + 10))),
@@ -69,6 +75,12 @@ const ZONE = { night0: track.sOf('puerta'), night1: track.sOf('lago'), pink0: tr
 const atm = { night: 0, pink: 0, steamT: 0 };
 const sound = new Sound();
 sound.volume = settings.volume;
+// música: empieza con el primer clic o tecla (los navegadores no dejan sonar nada antes)
+const music = new Music(sound);
+music.volume = settings.music;
+{ const init = sound.init.bind(sound); sound.init = () => { init(); music.start(); }; }
+addEventListener('pointerdown', () => sound.init(), { once: true });
+addEventListener('keydown', () => sound.init(), { once: true });
 const input = new Input(renderer.domElement, settings);
 const hud = new HUD();
 const net = new Net();
@@ -120,15 +132,50 @@ const aim = { yaw: 0, pitch: 0, dir: new V3(0, 0, -1) };
 let st = null, ghostRec = new GhostRecorder(), ghost = null, pendingTrick = null, warn = null, warnBeep = 0, wasLocked = false, prevBoost = false, sendT = 0;
 const PLATFORM = new V3(0, 46.6, 44);
 const slotPos = k => new V3(k % 2 ? 10 : -10, 46.6, 40 + Math.floor(k / 2) * 22);
-const rec = {
-  lap: +store.get(`jt-${MAP}-lap`, 0) || null,
-  total: +store.get(`jt-${MAP}-total`, 0) || null,
-  style: +store.get(`jt-${MAP}-style`, 0) || 0,
-  acro: +store.get(`jt-${MAP}-acro`, 0) || 0,
-};
+const rec = { lap: null, total: null, style: 0, acro: 0 };
+function loadRecords() {
+  rec.lap = +store.get(`jt-${MAP}-lap`, 0) || null;
+  rec.total = +store.get(`jt-${MAP}-total`, 0) || null;
+  rec.style = +store.get(`jt-${MAP}-style`, 0) || 0;
+  rec.acro = +store.get(`jt-${MAP}-acro`, 0) || 0;
+}
+loadRecords();
 const playing = () => ['countdown', 'race', 'free', 'lobby'].includes(game.phase);
 const multi = () => game.mode === 'race' || game.mode === 'lobby';
 const myId = () => (net.online ? net.me : 'me');
+
+// ---------- Circuitos ----------
+const courses = new CourseStore(store);
+let courseCode = null; // circuito puesto ahora (null: el original)
+settings.course = store.get('jt-course', '') || '';
+const _bs = new V3();
+// Posición equivalente en el recorrido original (para el clima por zonas en los circuitos propios)
+const baseS = p => track.base.spline.nearest(_bs.set(p.x, p.y, p.z)).s;
+function courseName(code) { if (!code) return BASE_COURSE.name; try { return decodeCourse(code).name; } catch { return '¿?'; } }
+// Pone un circuito (o el original): puertas, anillos, objetos, récords; los jets que ya vuelan siguen con la carrera nueva
+function applyCourse(code) {
+  code = code || null;
+  let c = null;
+  if (code) { try { c = decodeCourse(code); } catch { code = null; } }
+  if (code === courseCode) return;
+  track.setCourse(c);
+  courseCode = code;
+  view.buildGates(); view.setNextGate(0);
+  items.layout();
+  MAP = code ? courseId(code) : BASE_MAP;
+  loadRecords(); ghost = null;
+  for (const r of racers) { r.race = new Race(track, r.race.laps, r.race.dir); r.race.teleport(r.jet.pos); r.L = track.length; if (r.ap) r.ap.hint = -1; }
+  if (me) setMe(me);
+  meAp.hint = -1;
+}
+function selectCourse(code) { settings.course = code || ''; store.set('jt-course', settings.course); }
+// Lista para un desplegable: el original, mis circuitos y, si hace falta, el de la sala
+function fillCourseSelect(sel, value, withBase = true) {
+  const list = courses.list();
+  sel.innerHTML = (withBase ? `<option value="">${esc(BASE_COURSE.name)} (original)</option>` : '') + list.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('');
+  if (value && !list.some(c => c.code === value)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(value)}">${esc(courseName(value))}</option>`);
+  sel.value = value || '';
+}
 
 function setMe(r) { me = r; jet = r.jet; race = r.race; model = r.model; style = r.style; manual = r.manual; ctl = r.ctl; }
 function clearRacers(keepMe = false) {
@@ -186,13 +233,15 @@ function resetModes() {
   items.enable(false);
   touchItems();
 }
-function startTrial() {
+function startTrial(laps) {
   sound.init();
-  soloRacers(+params.get('laps') || 3);
+  game.trialLaps = laps || +params.get('laps') || 3;
+  soloRacers(game.trialLaps);
   game.mode = 'trial'; game.phase = 'countdown'; game.paused = false; game.autopilot = DEBUG && params.has('auto');
   resetRun();
   game.go = performance.now() + 3600; game.t = -3.6;
-  me.place(PLATFORM, new V3(0, 0, -1), 0, 99);
+  me.start = startSpot({ kind: 'carrera', dir: 1 }, 0);
+  me.place(me.start.pos, me.start.fwd, 0, 99);
   syncAim();
   ghost = loadGhost();
   showOverlay(null); hud.show(true); cam.cut = true;
@@ -239,6 +288,9 @@ function startFree() {
 // Menú: mi jet y tres bots vuelan solos por el recorrido de fondo
 function toMenu(msg = '') {
   net.close();
+  editorTest = false;
+  applyCourse(settings.course);
+  fillCourseSelect($('courseMenu'), settings.course);
   clearRacers();
   newMe(Infinity);
   resetModes();
@@ -265,7 +317,7 @@ function toMenu(msg = '') {
 function restart() {
   if (game.mode === 'free') startFree();
   else if (game.mode === 'race' && !net.online) startRace(null);
-  else startTrial();
+  else startTrial(game.trialLaps);
 }
 
 function respawnRacer(r) {
@@ -301,7 +353,7 @@ const MODES = {
 };
 const CUP_PTS = [10, 8, 6, 5, 4, 3, 2, 1];
 const ACRO_TRICKS = ['tonel', 'derrape', 'looping', 'campana', 'immelmann', 'splitS', 'barrena', 'cobra'];
-const newLobby = (players, bots) => ({ players, bots, laps: lobby.laps || 3, diff: lobby.diff || 'normal', mode: lobby.mode || 'carrera', time: lobby.time || 180, racing: false });
+const newLobby = (players, bots) => ({ players, bots, course: settings.course || null, laps: lobby.laps || 3, diff: lobby.diff || 'normal', mode: lobby.mode || 'carrera', time: lobby.time || 180, racing: false });
 const rules = () => game.rules || { kind: 'carrera', dir: 1 };
 const timed = () => ['combate', 'acro'].includes(rules().kind);
 // Carrera contra bots (sin red): la «sala» es solo la ventana de ajustes
@@ -384,6 +436,9 @@ function renderLobby() {
   const maxBots = MAX_JETS - L.players.length;
   L.bots = Math.min(L.bots, maxBots);
   $('hostOpts').hidden = !hosting;
+  if (hosting) fillCourseSelect($('courseSel'), L.course || '');
+  $('courseInfo').textContent = hosting ? '' : `Circuito: ${courseName(L.course)}`;
+  $('btnSaveCourse').hidden = hosting || !L.course || courses.list().some(c => c.code === L.course);
   $('mode').value = L.mode || 'carrera';
   $('modeInfo').textContent = (MODES[L.mode] || MODES.carrera).info;
   const isTimed = L.mode === 'combate' || L.mode === 'acro';
@@ -418,27 +473,36 @@ function startRace(sameGrid = null) {
   }
   const slots = all.map((_, i) => i).sort(() => Math.random() - 0.5);
   const R = { kind, laps: timed2(kind) ? Infinity : lobby.laps, time: lobby.time || 180, dir: kind === 'copa' && round === 1 ? -1 : 1, night: kind === 'copa' && round === 2, round };
-  const msg = { t: 'start', go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i] })) };
+  const msg = { t: 'start', course: lobby.course || null, go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i] })) };
   if (net.online) net.send(msg);
   beginRace(msg);
   if (net.online) broadcastLobby();
 }
 const timed2 = kind => kind === 'combate' || kind === 'acro';
 // Dónde empieza cada jet según el modo: la plataforma, el aire antes de la meta (al revés) o repartidos (combate)
+function clearSpot(p) {
+  for (let k = 0; k < 12 && (track.nearest(p, 30).d < 9 || p.y < 15); k++) p.y += 12;
+  return p;
+}
 function startSpot(R, slot) {
   const S = track.spline;
+  if (track.custom && R.dir > 0 && R.kind !== 'combate') {
+    const s = track.length - 110 - Math.floor(slot / 2) * 24, f = S.frame(s);
+    return { pos: clearSpot(f.P.clone().addScaled(f.R, slot % 2 ? 10 : -10)), fwd: f.T, air: true };
+  }
   if (R.kind === 'combate') {
     const g = track.gates[(slot * 3 + 1) % track.gates.length], s = g.s + 40;
     return { pos: S.pointAt(s), fwd: S.tangentAt(s), air: true };
   }
   if (R.dir < 0) {
     const s = 260 + Math.floor(slot / 2) * 24, f = S.frame(s);
-    return { pos: f.P.clone().addScaled(f.R, slot % 2 ? 10 : -10), fwd: f.T.clone().scale(-1), air: true };
+    return { pos: clearSpot(f.P.clone().addScaled(f.R, slot % 2 ? 10 : -10)), fwd: f.T.clone().scale(-1), air: true };
   }
   return { pos: slotPos(slot), fwd: new V3(0, 0, -1), air: false };
 }
 function beginRace(m) {
   sound.init();
+  applyCourse(m.course || null);
   clearRacers();
   const R = { kind: 'carrera', dir: 1, night: false, round: 0, ...(m.rules || {}) };
   R.laps = timed2(R.kind) ? Infinity : (R.laps || m.laps || 3);
@@ -592,6 +656,7 @@ net.on('leave', m => {
 net.on('lobby', m => {
   if (net.host) return;
   lobby = m.lobby;
+  if (game.mode === 'lobby' && (lobby.course || null) !== courseCode) applyCourse(lobby.course);
   syncLobbyRacers();
   if (!$('lobby').hidden) renderLobby();
 });
@@ -791,7 +856,7 @@ function handleEvents(ev, awards) {
         if (e.ring) { jet.turbo = Math.min(100, jet.turbo + 5); fx.ringBurst(g.p, g.t, g.ring); }
         if (!menu) {
           sound.sfx(e.ring ? 'ring' : 'gate');
-          const sec = SECTIONS.find(([i]) => i === e.i && i > 0);
+          const sec = !track.custom && SECTIONS.find(([i]) => i === e.i && i > 0);
           if (sec) hud.sectionName(sec[1]);
         }
         break;
@@ -853,7 +918,9 @@ function onFinish(e) {
     <p class="hint">Récords: vuelta ${fmtTime(rec.lap)} · carrera ${fmtTime(rec.total)} · estilo ${rec.style.toLocaleString('es-ES')}. El fantasma cian es tu mejor vuelta.</p>`;
   const btns = $('resBtns');
   btns.innerHTML = '';
-  for (const [text, fn, primary] of [['Repetir', startTrial, true], ['Ver repetición', () => startReplay()], ['Menú', () => toMenu()]]) {
+  const trialBtns = editorTest ? [['Volver al editor', () => openEditor(true), true], ['Repetir', () => startTrial(game.trialLaps)], ['Ver repetición', () => startReplay()]]
+    : [['Repetir', () => startTrial(game.trialLaps), true], ['Ver repetición', () => startReplay()], ['Menú', () => toMenu()]];
+  for (const [text, fn, primary] of trialBtns) {
     const b = document.createElement('button'); b.textContent = text; if (primary) b.className = 'primary'; b.onclick = fn; btns.appendChild(b);
   }
   input.exitLock();
@@ -863,7 +930,7 @@ function updateRecords() {
   const parts = [];
   if (rec.lap) parts.push(`vuelta ${fmtTime(rec.lap)}`, `carrera ${fmtTime(rec.total)}`, `estilo ${rec.style.toLocaleString('es-ES')}`);
   if (rec.acro) parts.push(`acrobacias ${rec.acro.toLocaleString('es-ES')}`);
-  $('records').textContent = parts.length ? `Récords · ${parts.join(' · ')}` : '';
+  $('records').textContent = parts.length ? `Récords${track.custom ? ` en «${track.custom.name}»` : ''} · ${parts.join(' · ')}` : '';
 }
 
 // ---------- Interacción entre jets: rebufo y empujones ----------
@@ -1114,6 +1181,28 @@ function updateCamera(dt) {
   world.followSun(jet.alive ? rp : cam.crashLook);
 }
 
+// ---------- Calor del escape (distorsión en la imagen detrás de las toberas de mi jet) ----------
+const _h0 = new THREE.Vector3(), _h1 = new THREE.Vector3(), _hb = new THREE.Vector3();
+function updateHeat() {
+  if (!me || !me.view.alive || game.phase === 'hangar' || !model.group.visible) { world.setHeat(null, null, 0, 0); return; }
+  const q = me.view.q, segs = [];
+  _hb.set(0, 0, 1).applyQuaternion(q);
+  const boost = me.view.boost, len = 7 + (boost ? 7 : 0) + me.view.throttle * 3;
+  let dist = 0;
+  for (const nz of model.nozzles.slice(0, 2)) {
+    _h0.copy(nz).applyQuaternion(q).add(me.view.p);
+    _h1.copy(_h0).addScaledVector(_hb, len);
+    dist = _h0.distanceTo(camera.position);
+    _h0.project(camera); _h1.project(camera);
+    if (_h0.z > 1 || _h1.z > 1) continue;
+    segs.push([_h0.x * 0.5 + 0.5, _h0.y * 0.5 + 0.5, _h1.x * 0.5 + 0.5, _h1.y * 0.5 + 0.5]);
+  }
+  if (!segs.length || dist > 120) { world.setHeat(null, null, 0, 0); return; }
+  const width = clamp(1.9 / dist / (2 * Math.tan((camera.fov * Math.PI) / 360)), 0.005, 0.09);
+  const strength = (0.002 + 0.0022 * me.view.throttle + (boost ? 0.003 : 0)) * clamp(30 / dist, 0.35, 1);
+  world.setHeat(segs[0], segs[1] || null, width, strength, game.clock);
+}
+
 // ---------- Marcador ----------
 const _p = new THREE.Vector3();
 function project(v) {
@@ -1209,7 +1298,7 @@ function helpLine() {
 // ---------- Clima por tramos, vapor del tren y avisos de viento ----------
 const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 function updateAtmosphere(dt) {
-  const s = game.phase === 'replay' ? replayS : race.s || 0;
+  const s = game.phase === 'replay' ? replayS : game.phase === 'editor' ? baseS(camera.position) : track.custom ? baseS(jet.pos) : race.s || 0;
   const nightT = game.forceNight ? 1 : sstep(ZONE.night0 - 5, ZONE.night0 + 55, s) * (1 - sstep(ZONE.night1 - 260, ZONE.night1 + 40, s));
   const pinkT = game.forceNight ? 0 : sstep(ZONE.pink0 - 160, ZONE.pink0 + 120, s) * (1 - sstep(ZONE.pink1 - 220, ZONE.pink1 + 40, s));
   const k = cam.cut ? 1 : damp(3.5, dt);
@@ -1295,11 +1384,13 @@ function frame(now) {
   last = now;
   adaptResolution(raw);
   st = input.poll();
+  music.setMode((game.mode === 'race' || game.mode === 'trial') && (game.phase === 'race' || game.phase === 'countdown') ? 'race' : 'menu');
   // en el hangar solo se dibuja el estudio con el jet
   if (game.phase === 'hangar') { hangar.frame(dt); requestAnimationFrame(frame); return; }
   // repetición y modo foto: su propio bucle
   if (photo.on && st.pause) { exitPhoto(); st.pause = false; }
   if (game.phase === 'replay') { replayFrame(dt); requestAnimationFrame(frame); return; }
+  if (game.phase === 'editor') { editorFrame(dt); requestAnimationFrame(frame); return; }
 
   // botones generales
   if (st.pause && (playing() || game.phase === 'finished')) togglePause();
@@ -1369,6 +1460,7 @@ function frame(now) {
     warn = jet.alive && game.phase !== 'menu' ? collisionWarning(jet, track) : null;
   }
   if (photo.on) photoCamera(dt, rp, rq); else updateCamera(dt);
+  updateHeat();
   if (!photo.on) drawHud(dt);
   updateVoices(dt);
   if (playing() && !game.paused && sound.ctx) {
@@ -1429,6 +1521,7 @@ function replayFocusRacer() { return racerById(recorder.ids[replay.focus]); }
 let rpBarT = 0;
 function replayFrame(dt) {
   const R = replay;
+  world.setHeat(null, null, 0, 0);
   // teclado: espacio pausa, flechas avanzan o retroceden, A/D cambian de piloto, C la cámara, Esc sale
   if (!photo.on) {
     if (st.trickDown) { if (R.t >= R.duration) R.seek(0); R.playing = !R.playing; renderReplayBar(); }
@@ -1460,7 +1553,7 @@ function replayFrame(dt) {
   // cámara sobre el piloto enfocado
   const fr = replayFocusRacer(), F = R.pose(R.focus, rpPose);
   if (F) {
-    replayS = F.s;
+    replayS = track.custom ? baseS(F.p) : F.s;
     if (photo.on) photoCamera(dt, F.p, F.q);
     else {
       const fov = R.camera(dt, camera, F);
@@ -1647,6 +1740,157 @@ renderer.domElement.addEventListener('pointermove', e => {
 addEventListener('pointerup', () => { photo.drag = null; });
 renderer.domElement.addEventListener('wheel', e => { if (!photo.on) return; e.preventDefault(); photo.dist = clamp(photo.dist * (e.deltaY > 0 ? 1.1 : 0.9), 4, 120); syncPhotoInputs(); }, { passive: false });
 
+// ---------- Editor de circuitos ----------
+const editor = new Editor(scene, camera, track, renderer, { onChange: () => renderEditorPanel(), toast });
+let editorTest = false, edInfoT = 0;
+function openEditor(resume = false) {
+  net.close();
+  sound.silence();
+  if (!resume || !editor.gates.length) {
+    let d = null;
+    try { d = JSON.parse(store.get('jt-editor', 'null')); } catch { d = null; }
+    if (d && Array.isArray(d.gates) && d.gates.length) { editor.restore(d); editor.history = []; editor.future = []; editor.lookAtGate(0); } else editor.load({ ...BASE_COURSE, name: 'Mi circuito' });
+  }
+  editorTest = false;
+  clearRacers(); newMe(Infinity);
+  me.model.group.visible = false; ghostModel.group.visible = false;
+  for (const r of racers) r.smoke.clear();
+  fx.clearTrails(); items.clear();
+  game.phase = 'editor'; game.mode = 'editor'; game.paused = false; game.menuOpen = false;
+  hud.show(false); hud.warn(0);
+  showOverlay(null);
+  $('editor').hidden = false; $('edTouch').hidden = !touchDevice; $('edShareBox').hidden = true;
+  view.courseGroup.visible = false; items.group.visible = false;
+  input.exitLock();
+  editor.open();
+  fillCourseSelect($('edList'), '', false);
+  renderEditorPanel();
+}
+function closeEditorUI() {
+  editor.close();
+  $('editor').hidden = true;
+  view.courseGroup.visible = true; items.group.visible = items.on;
+}
+function editorFrame(dt) {
+  world.setHeat(null, null, 0, 0);
+  editor.update(dt, input.keys);
+  game.clock += dt;
+  track.update(game.clock); view.update(game.clock);
+  if (Math.abs(camera.fov - 70) > 0.05) { camera.fov = cam.fov = 70; camera.updateProjectionMatrix(); fx.setPointScale(renderer, camera); }
+  world.setBlur(0);
+  world.followSun(editor.cursor);
+  updateAtmosphere(dt);
+  fx.update(dt, { speed: 0, cam: camera });
+  if ((edInfoT -= dt) <= 0) {
+    edInfoT = 0.15;
+    const E = editor, selName = E.sel === 0 ? 'de salida' : String(E.sel + 1);
+    $('edInfo').textContent = `Mira a ${Math.round(E.cursor.distanceTo(camera.position))} m${E.cursorHit ? ' (antes del obstáculo)' : ''} · altura ${Math.round(E.cursor.y)} m · ` +
+      (E.grab ? `moviendo la puerta ${selName}: clic para soltarla` : E.sel >= 0 ? `puerta ${selName} elegida · clic en el vacío: otra detrás` : touchDevice ? 'toca el vacío: poner puerta · arrastra: girar' : 'clic: poner puerta · arrastrar: girar · WASD/QE: volar');
+  }
+  world.render();
+}
+function renderEditorPanel() {
+  const E = editor, I = E.info;
+  if (document.activeElement !== $('edName')) $('edName').value = E.name;
+  $('edStats').textContent = `${I.n} puertas · ${(I.length / 1000).toFixed(2).replace('.', ',')} km · unos ${fmtClock(I.lap || 0)} por vuelta · ${E.boosts.length} ${E.boosts.length === 1 ? 'anillo' : 'anillos'} de turbo`;
+  $('edWarn').innerHTML = (I.warnings.length ? I.warnings.map(w => `<li>${esc(w)}</li>`) : ['<li class="ok">✓ Listo: pruébalo y compártelo</li>']).join('');
+  $('edMove').textContent = E.grab ? '✋ Soltar' : '✋ Mover';
+  for (const id of ['edMove', 'edDel', 'edSize', 'edGo']) $(id).disabled = E.sel < 0;
+  $('edUndo').disabled = !E.history.length;
+  for (const id of ['edTest', 'edSave', 'edShare']) $(id).disabled = !I.ok;
+  $('edDist').value = String(Math.round(E.dist));
+}
+// Circuito del editor como código (o null si aún no vale)
+function editorCode() {
+  if (!editor.info.ok) { toast(editor.info.warnings[0] || 'El circuito aún no está listo'); return null; }
+  editor.name = cleanCourseName(editor.name);
+  return encodeCourse(editor.course());
+}
+function saveCourse(quiet = false) {
+  const code = editorCode();
+  if (!code) return null;
+  courses.save(code); selectCourse(code);
+  fillCourseSelect($('edList'), code, false);
+  if (!quiet) toast(`Guardado «${editor.name}»: ya puedes elegirlo en el menú y en la sala`);
+  return code;
+}
+function shareCourse() {
+  const code = saveCourse(true);
+  if (!code) return;
+  $('edLink').value = `${location.origin}${location.pathname}?circuito=${code}`;
+  $('edShareBox').hidden = false;
+  $('edLink').select();
+}
+function testCourse() {
+  const code = saveCourse(true);
+  if (!code) return;
+  if (editor.info.blocked) toast('Ojo: hay tramos en rojo, ahí te vas a chocar');
+  applyCourse(code);
+  startTrial(1);
+  editorTest = true;
+}
+// Lee un código o un enlace con «circuito=»
+function parseCourseInput(text) {
+  const t = String(text || '').trim(), m = t.match(/[?&]circuito=([A-Za-z0-9_-]+)/);
+  return decodeCourse(m ? m[1] : t);
+}
+const edBtn = (id, fn) => { $(id).onclick = () => { fn(); $(id).blur(); renderEditorPanel(); }; };
+edBtn('edAdd', () => editor.addGate());
+edBtn('edMove', () => editor.toggleGrab());
+edBtn('edDel', () => editor.deleteGate());
+edBtn('edSize', () => editor.cycleSize());
+edBtn('edBoost', () => editor.toggleBoost());
+edBtn('edGo', () => editor.lookAtGate(editor.sel));
+edBtn('edPrev', () => editor.selectNext(-1));
+edBtn('edNext', () => editor.selectNext(1));
+edBtn('edUndo', () => editor.undo());
+edBtn('edTest', testCourse);
+edBtn('edSave', () => saveCourse());
+edBtn('edShare', shareCourse);
+edBtn('edNew', () => { editor.snapshot(); editor.sel = -1; editor.restore({ name: 'Mi circuito', gates: [], boosts: [] }); toast('Circuito vacío: haz clic para poner la salida'); });
+edBtn('edOrig', () => { editor.load({ ...BASE_COURSE, name: 'Mi circuito' }); toast('Copia del recorrido original'); });
+edBtn('edLoad', () => { const v = $('edList').value; if (!v) return; try { editor.load(decodeCourse(v)); toast(`Abierto «${editor.name}»`); } catch { toast('No se ha podido abrir'); } });
+let removeArmed = 0;
+edBtn('edRemove', () => {
+  const v = $('edList').value;
+  if (!v) return;
+  if (Date.now() - removeArmed > 3000) { removeArmed = Date.now(); toast('Pulsa otra vez «Borrar» para borrarlo de verdad'); return; }
+  courses.remove(v); if (settings.course === v) selectCourse(''); removeArmed = 0;
+  fillCourseSelect($('edList'), '', false); toast('Circuito borrado');
+});
+edBtn('edImport', () => {
+  try { const c = parseCourseInput($('edCode').value); editor.load(c); $('edCode').value = ''; toast(`Importado «${c.name}»`); } catch { toast('Ese código no es válido'); }
+});
+$('edCopy').onclick = async () => { try { await navigator.clipboard.writeText($('edLink').value); } catch { $('edLink').select(); document.execCommand('copy'); } toast('Enlace copiado'); };
+$('edExit').onclick = () => toMenu();
+$('edFold').onclick = () => { const f = $('edPanel').classList.toggle('folded'); $('edFold').textContent = f ? '▸' : '▾'; };
+$('edDist').oninput = e => { editor.dist = +e.target.value; };
+$('edName').oninput = e => { editor.name = e.target.value; };
+$('edName').onchange = e => { editor.name = cleanCourseName(e.target.value); e.target.value = editor.name; editor.rebuild(); };
+for (const b of document.querySelectorAll('#edTouch [data-ed]')) {
+  const k = b.dataset.ed, on = v => e => { e.preventDefault(); editor.touchMove = { ...(editor.touchMove || {}), [k]: v }; };
+  b.addEventListener('pointerdown', on(true)); b.addEventListener('pointerup', on(false)); b.addEventListener('pointerleave', on(false)); b.addEventListener('pointercancel', on(false));
+}
+addEventListener('keydown', e => {
+  if (game.phase !== 'editor' || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  const E = editor, ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && e.code === 'KeyZ') E.undo();
+  else if (ctrl && e.code === 'KeyY') E.redo();
+  else if (ctrl) return;
+  else if (e.code === 'KeyG') E.toggleGrab();
+  else if (e.code === 'Delete' || e.code === 'Backspace' || e.code === 'KeyX') E.deleteGate();
+  else if (e.code === 'KeyT') E.cycleSize();
+  else if (e.code === 'KeyB') E.toggleBoost();
+  else if (e.code === 'Tab') { e.preventDefault(); E.selectNext(e.shiftKey ? -1 : 1); }
+  else if (e.code === 'KeyV') E.lookAtGate(E.sel);
+  else if (e.code === 'Enter' || e.code === 'KeyP') E.addGate();
+  else return;
+  renderEditorPanel();
+});
+$('btnEditor').onclick = () => openEditor(false);
+$('btnEdBack').onclick = () => { game.paused = false; openEditor(true); };
+$('courseMenu').onchange = e => { selectCourse(e.target.value); toMenu(); };
+
 // ---------- Interfaz ----------
 const OVERLAYS = ['menu', 'settingsPanel', 'controlsPanel', 'pause', 'results', 'lobby', 'hangar'];
 function enterHangar() {
@@ -1666,6 +1910,7 @@ function showOverlay(id) {
   if (replay && !inReplay && id !== 'results') { replay.dispose(); replay = null; $('replayBar').hidden = true; $('rpInfo').hidden = true; }
   if (photo.on && !inReplay && !(game.paused && (id === null || id === 'pause'))) { photo.on = false; world.setDof(0, 20); document.body.classList.remove('photo'); renderer.domElement.style.filter = ''; $('vigOverlay')?.remove(); $('photoBar').hidden = true; $('photoHide').hidden = true; }
   $('touch').hidden = !(touchDevice && !id && playing());
+  if (game.phase !== 'editor' && editor.active) closeEditorUI();
 }
 function lockIfNeeded() { if (settings.scheme === 'mouse' && !touchDevice) input.requestLock(); }
 // En línea el mundo no se para: abrir un menú deja tu jet con el piloto automático
@@ -1673,7 +1918,7 @@ function togglePause() {
   if (game.mode === 'lobby') { if ($('lobby').hidden) openLobbyPanel(); else closeLobbyPanel(); return; }
   if (net.online) {
     if (game.menuOpen) resume();
-    else { game.menuOpen = true; showOverlay('pause'); $('btnPhoto').hidden = true; input.exitLock(); }
+    else { game.menuOpen = true; showOverlay('pause'); $('btnPhoto').hidden = true; $('edBackRow').hidden = true; input.exitLock(); }
     return;
   }
   game.paused ? resume() : pause();
@@ -1685,6 +1930,7 @@ function pause() {
   game.paused = true;
   showOverlay('pause');
   $('btnPhoto').hidden = false;
+  $('edBackRow').hidden = !editorTest;
   input.exitLock();
   sound.silence();
 }
@@ -1722,7 +1968,7 @@ function renderColors() {
   }
 }
 
-$('btnTrial').onclick = startTrial;
+$('btnTrial').onclick = () => startTrial();
 $('btnFree').onclick = startFree;
 $('btnHangar').onclick = enterHangar;
 $('btnBots').onclick = openBotsLobby;
@@ -1734,6 +1980,12 @@ $('btnCopy').onclick = async () => {
   toast('Enlace copiado');
 };
 $('btnStart').onclick = () => { if (!net.online || net.host) startRace(null); };
+$('btnSaveCourse').onclick = () => { try { const c = courses.save(lobby.course); toast(`«${c.name}» guardado en «Mis circuitos»`); } catch { toast('No se ha podido guardar'); } renderLobby(); };
+$('courseSel').onchange = e => {
+  lobby.course = e.target.value || null;
+  selectCourse(lobby.course); applyCourse(lobby.course); updateRecords();
+  if (net.online) broadcastLobby(); else renderLobby();
+};
 $('mode').onchange = e => { lobby.mode = e.target.value; game.cup = null; if (net.online) broadcastLobby(); else renderLobby(); };
 $('time').onchange = e => { lobby.time = +e.target.value; if (net.online) broadcastLobby(); else renderLobby(); };
 $('btnFly').onclick = closeLobbyPanel;
@@ -1765,6 +2017,7 @@ bind('assist', 'assist', el => +el.value);
 bind('invert', 'invert', el => el.checked);
 bind('sens', 'sens', el => +el.value);
 bind('volume', 'volume', el => +el.value, () => sound.setVolume(settings.volume));
+bind('music', 'music', el => +el.value, () => { sound.init(); music.setVolume(settings.music); });
 bind('quality', 'quality', el => el.value, () => location.reload());
 bind('gyro', 'gyro', el => el.checked, () => { if (settings.gyro) input.enableGyro(); else input.gyro.on = false; });
 $('gyroRow').hidden = !touchDevice;
@@ -1776,6 +2029,16 @@ addEventListener('hashchange', setupJoin);
 
 // ---------- Arranque ----------
 renderColors();
+// ?circuito=… : se guarda en «Mis circuitos», queda elegido y se quita de la dirección
+if (params.has('circuito')) {
+  const code = params.get('circuito');
+  let msg;
+  try { const c = courses.save(code); selectCourse(code); msg = `Circuito «${c.name}» guardado en «Mis circuitos» y elegido`; } catch { msg = 'El enlace del circuito no es válido'; }
+  params.delete('circuito');
+  const q = [...params].map(([k, v]) => (v ? `${k}=${encodeURIComponent(v)}` : k)).join('&');
+  history.replaceState(null, '', location.pathname + (q ? `?${q}` : '') + location.hash);
+  setTimeout(() => toast(msg), 800);
+}
 toMenu();
 renderer.compile(scene, camera);
 $('loading').hidden = true;
@@ -1789,8 +2052,8 @@ if (DEBUG) {
     get jet() { return jet; }, get race() { return race; }, get style() { return style; }, get me() { return me; }, get racers() { return racers; },
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
     startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
-    items, recorder, photo, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
-    get replay() { return replay; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
+    items, recorder, photo, music, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
+    get replay() { return replay; }, editor, courses, applyCourse, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },
