@@ -31,7 +31,8 @@ export class Autopilot {
       if (pr.col && pr.d < 16) {
         // algunos obstáculos dicen cómo se esquivan (las aspas que barren el paso, por encima)
         const k = Math.min(A.mover, (16 - pr.d) * 1.6 + 8) * (1.2 - tau / 2.5);
-        if (pr.m?.aiDodge === 'up') { push = (push || new V3()).add(new V3(0, 16, 0)); upOnly = true; } else push = (push || new V3()).addScaled(pr.n, k);
+        // 'up': por encima · 'normal': en la dirección de su cara (también en vertical: las plataformas que suben y bajan)
+        if (pr.m?.aiDodge === 'up') { push = (push || new V3()).add(new V3(0, pr.m.aiUp || 16, 0)); upOnly = true; } else { push = (push || new V3()).addScaled(pr.n, k); if (pr.m?.aiDodge === 'normal') upOnly = true; }
         break;
       }
     }

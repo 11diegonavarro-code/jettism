@@ -23,7 +23,9 @@ function puffTexture() {
 }
 
 export class Clouds {
-  constructor(scene, track, Q, sunDir) {
+  // opts: { layout(cluster, R, track, Q) para colocarlas en otro mapa, lit y shade: colores de la parte iluminada y la sombra }
+  constructor(scene, track, Q, sunDir, opts = {}) {
+    this.scene = scene;
     const R = rng(33), puffs = [];
     const cluster = (cx, cy, cz, n, spread, size, flat = 0.35) => {
       for (let k = 0; k < n; k++) {
@@ -33,6 +35,12 @@ export class Clouds {
         puffs.push([cx + dx, cy + dy, cz + dz, size * (0.6 + R() * 0.7), Math.min(1, Math.max(0, 0.25 + lift * 0.5 + sunward * 0.45)), R() * 6.28]);
       }
     };
+    if (opts.layout) opts.layout(cluster, R, track, Q);
+    else this.desertLayout(cluster, R, track, Q);
+    this.build(scene, puffs, opts);
+  }
+
+  desertLayout(cluster, R, track, Q) {
     // de los péndulos cuelgan de nubes
     for (const m of track.movers) if (m.kind === 'pendulum') cluster(m.pivot.x, m.pivot.y + 10, m.pivot.z, 14, 70, 95, 0.4);
     // el tren sale y entra en nubes bajas sobre el lago
@@ -48,6 +56,9 @@ export class Clouds {
       const a = (i / nFar) * Math.PI * 2 + R() * 0.15, d = 3600 + R() * 2600;
       cluster(500 + Math.cos(a) * d, 380 + R() * 700, -900 + Math.sin(a) * d, 9, 300, 430, 0.3);
     }
+  }
+
+  build(scene, puffs, opts) {
 
     const base = new THREE.PlaneGeometry(1, 1), geo = new THREE.InstancedBufferGeometry();
     geo.index = base.index;
@@ -62,7 +73,7 @@ export class Clouds {
     geo.instanceCount = puffs.length;
     this.uniforms = {
       map: { value: puffTexture() },
-      uLit: { value: new THREE.Color('#ffd9b8').multiplyScalar(1.25) }, uShade: { value: new THREE.Color('#8e5f8e') },
+      uLit: { value: new THREE.Color(opts.lit || '#ffd9b8').multiplyScalar(1.25) }, uShade: { value: new THREE.Color(opts.shade || '#8e5f8e') },
       uFogColor: { value: new THREE.Color() }, uFogDensity: { value: 0.0002 },
     };
     this.day = { lit: this.uniforms.uLit.value.clone(), shade: this.uniforms.uShade.value.clone() };
@@ -101,6 +112,10 @@ export class Clouds {
     this.count = puffs.length;
   }
 
+  dispose() {
+    this.scene.remove(this.mesh);
+    this.mesh.geometry.dispose(); this.mesh.material.dispose(); this.uniforms.map.value.dispose();
+  }
   update(fog, night) {
     this.uniforms.uFogColor.value.copy(fog.color);
     this.uniforms.uFogDensity.value = fog.density;

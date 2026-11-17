@@ -67,6 +67,11 @@ export class Race {
   // Dónde reaparecer: un poco por delante de la última puerta (evitando las verticales)
   respawnPoint() {
     const gates = this.track.gates, n = this.order.length;
+    // antes de cruzar la salida (salida lanzada o en el aire): se vuelve a 110 m antes de ella, para poder cruzarla
+    if (this.lap === 0) {
+      const S = this.track.spline, s = gates[0].s - 110 * this.dir;
+      return { pos: S.pointAt(s), fwd: S.tangentAt(s).scale(this.dir), gate: 0 };
+    }
     let k = this.order.indexOf(this.lastGate);
     if (Math.abs(gates[this.order[k]].t.y) > 0.6) k = (k - 1 + n) % n;
     const g = gates[this.order[k]], S = this.track.spline;

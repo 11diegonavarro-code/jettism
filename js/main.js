@@ -77,8 +77,13 @@ world.setMap(track.map.atmo ? track.map.atmo() : null);
 // nubes sueltas: solo en el desierto (cuelgan de ellas los péndulos y el tren sale de ellas)
 let clouds = null;
 function syncClouds() {
-  if (track.map.clouds && !clouds) clouds = new Clouds(scene, track, world.quality, SUN);
-  if (clouds) clouds.mesh.visible = !!track.map.clouds;
+  const want = track.map.clouds || track.map.cloudLayout;
+  if (clouds && clouds.mapId !== track.map.id) { clouds.dispose(); clouds = null; }
+  if (want && !clouds) {
+    const C = track.map.cloudLayout, sd = track.map.atmo ? new THREE.Vector3(...(track.map.atmo().sunDir || [0, 1, 0])).normalize() : SUN;
+    clouds = new Clouds(scene, track, world.quality, sd, C ? { layout: C.layout, lit: C.lit, shade: C.shade } : {});
+    clouds.mapId = track.map.id;
+  }
 }
 syncClouds();
 const fx = new FX(scene, camera, world.quality);
@@ -302,7 +307,7 @@ function startTrial(laps, quick = false) {
   resetRun();
   run = { splits: [] };
   pbSplits = (() => { try { return JSON.parse(store.get(`jt-${MAP}-splits`, '[]')); } catch { return []; } })();
-  me.start = startSpot({ kind: 'carrera', dir: 1 }, 0);
+  me.start = startSpot({ kind: 'carrera', dir: 1 }, 0, true);
   me.place(me.start.pos, me.start.fwd, 0, 99);
   syncAim();
   ghost = loadGhost();
@@ -559,11 +564,12 @@ function clearSpot(p) {
   for (let k = 0; k < 12 && (track.nearest(p, 30).d < 9 || p.y < 15); k++) p.y += 12;
   return p;
 }
-function startSpot(R, slot) {
+// solo: un único jet (contrarreloj): sale justo sobre la línea
+function startSpot(R, slot, solo = false) {
   const S = track.spline;
   if ((track.custom || track.map.start === 'air') && R.dir > 0 && R.kind !== 'combate') {
     const s = track.length - 110 - Math.floor(slot / 2) * 24, f = S.frame(s);
-    return { pos: clearSpot(f.P.clone().addScaled(f.R, slot % 2 ? 10 : -10)), fwd: f.T, air: true };
+    return { pos: clearSpot(f.P.clone().addScaled(f.R, solo ? 0 : slot % 2 ? 10 : -10)), fwd: f.T, air: true };
   }
   if (R.kind === 'combate') {
     const g = track.gates[(slot * 3 + 1) % track.gates.length], s = g.s + 40;
@@ -1475,7 +1481,7 @@ function updateAtmosphere(dt) {
     world.setMapNight(atm.night);
   }
   world.update(dt, game.clock);
-  if (clouds?.mesh.visible) clouds.update(scene.fog, atm.night);
+  if (clouds) clouds.update(scene.fog, atm.night);
   if ((atm.steamT -= dt) <= 0) { atm.steamT = 0.06; const c = view.trainChimney(); if (c) fx.steam(c); }
   if (playing() && jet.alive && game.phase !== 'countdown') {
     if (jet.thermal > 0.3 && !game.inThermal) { game.inThermal = true; hud.feed('TÉRMICA ↑ +TURBO', 'near'); } else if (!jet.thermal) game.inThermal = false;

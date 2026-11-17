@@ -3,6 +3,8 @@
 import { DESIERTO, BASE_COURSE, SECTIONS as DESERT_SECTIONS } from '../track.js';
 import laberintoDef from './laberinto.js';
 import * as laberintoView from './laberinto-view.js';
+import torresDef from './torres.js';
+import * as torresView from './torres-view.js';
 
 const desierto = {
   ...DESIERTO, name: 'Desierto de los sueños', key: 'desierto2', laps: 3, start: 'platform', course: BASE_COURSE,
@@ -12,5 +14,7 @@ const desierto = {
 };
 const laberinto = { ...laberintoDef, atmo: laberintoView.atmo, buildView: laberintoView.buildView, music: laberintoView.MUSIC };
 
-export const MAPS = [desierto, laberinto];
+const torres = { ...torresDef, atmo: torresView.atmo, buildView: torresView.buildView, music: torresView.MUSIC, cloudLayout: torresView.CLOUDS };
+
+export const MAPS = [desierto, laberinto, torres];
 export const mapById = id => MAPS.find(m => m.id === id) || desierto;

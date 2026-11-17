@@ -64,7 +64,7 @@ function normalTex(size, height, strength) {
   }, { color: false });
 }
 
-export function noiseTexture({ size = 512, kind = 'sand', seed = 3 }) {
+export function noiseTexture({ size = 512, kind = 'sand', seed = 3, colors = null }) {
   switch (kind) {
     case 'sand': {
       const n = fbm(size, 4, 4, 5, seed), A = hex('#c79a68'), B = hex('#f0c994');
@@ -110,6 +110,20 @@ export function noiseTexture({ size = 512, kind = 'sand', seed = 3 }) {
         c = c.map(k => k * (1 - hole * 0.45));
         const streak = sstep(0.5, 0.85, st[y * size + x]) * (0.4 + 0.6 * m[y * size + x]);
         return c.map(k => k * (1 - streak * 0.3) * (0.97 + Math.random() * 0.05));
+      });
+    }
+    case 'paint': {
+      // pintura: pinceladas cortas en varias direcciones, con tres tonos (oscuro, medio y claro)
+      const n = fbm(size, 4, 4, 4, seed + 11), m = fbm(size, 3, 9, 3, seed + 12), q = fbm(size, 9, 3, 3, seed + 13), w = fbm(size, 6, 6, 3, seed + 14);
+      const [A, B, C] = (colors || ['#1f8a82', '#2db3a2', '#5fd8c0']).map(hex);
+      return canvasTex(size, (x, y) => {
+        const i = y * size + x, v = n[i];
+        // dos familias de pinceladas (horizontales y verticales) que se alternan por manchas
+        const sh = 0.5 + 0.5 * Math.sin((y / size) * Math.PI * 2 * 22 + m[i] * 9), sv = 0.5 + 0.5 * Math.sin((x / size) * Math.PI * 2 * 22 + q[i] * 9);
+        const stroke = w[i] > 0.5 ? sh : sv;
+        let c = mix(A, B, sstep(0.18, 0.82, v * 0.78 + stroke * 0.22));
+        c = mix(c, C, sstep(0.8, 0.97, stroke * 0.4 + v * 0.6) * 0.55);
+        return c.map(k => k * (0.95 + Math.random() * 0.07));
       });
     }
     case 'wood': {
