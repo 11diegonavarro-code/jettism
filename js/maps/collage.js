@@ -1,20 +1,21 @@
-// Nivel 1: Collage psicodélico. Un edificio op-art que se vuela por dentro: pasillos con ventanas sobre pilotes, salas
-// enormes con lucernarios, un pozo por el que se sube y tramos al aire libre entre torres de discos apilados, manchas de
+// Nivel 1: Collage psicodélico. Una cueva op-art: el recorrido va encerrado por rocas de colores apiladas (gargantas y
+// cavernas de sección irregular), con tramos al aire libre entre torres de discos apilados, manchas de
 // cebra, discos de anillos, muros arcoíris y un busto gigante. Dentro, cientos de formas irregulares pintadas (kit de
 // arte) que cuelgan del techo, salen del suelo y de las paredes. Fácil: secciones anchas y obstáculos suaves.
 // JS puro (también se simula en Node); lo que se dibuja está en collage-view.js.
 import { V3 } from '../math.js';
 import { kit } from './kit.js';
-import { buildShell, artInside } from './shell.js';
+import { buildCave, caveInside } from './cave.js';
 import { artScatter, artKeep, artFar } from './art.js';
 import { AI_NARROW } from '../ai.js';
 
 const GATES = [
-  [0, 42, 0, 'l'], [60, 42, -300, 'l'], [260, 42, -520, 'l'], [520, 42, -560, 'l'], [760, 42, -420, 'l'], [860, 100, -150, 'l'],
-  [780, 70, 120, 'l'], [560, 46, 260, 'l'], [300, 42, 300, 'l'], [60, 42, 330, 'l'], [-160, 42, 200, 'l'], [-120, 42, 100, 'l'],
+  [0, 50, 0, 'm'], [60, 50, -300, 'm'], [260, 60, -520, 'm'], [520, 50, -560, 'm'], [760, 60, -420, 'm'], [860, 110, -150, 'm'],
+  [780, 80, 120, 'm'], [560, 60, 260, 'm'], [300, 50, 300, 'm'], [60, 50, 330, 'm'], [-160, 55, 200, 'm'], [-120, 50, 100, 'm'],
 ];
 // sección de cada tramo: [media anchura, media altura, tipo] (c pasillo, h sala, p pozo, o al aire libre)
-export const SECT = [[30, 18, 'o'], [22, 14, 'c'], [50, 32, 'h'], [22, 14, 'c'], [32, 48, 'p'], [50, 34, 'h'], [22, 22, 'c'], [50, 34, 'h'], [22, 14, 'c'], [30, 18, 'o'], [50, 32, 'h'], [30, 18, 'o']];
+// cueva de cada tramo: [radio, tipo] (n garganta, w caverna, o al aire libre)
+export const SECT = [[0, 'o'], [26, 'n'], [44, 'w'], [26, 'n'], [34, 'w'], [46, 'w'], [28, 'n'], [44, 'w'], [26, 'n'], [0, 'o'], [40, 'w'], [0, 'o']];
 export const COURSE = { name: 'Collage psicodélico', gates: GATES, boosts: [[1, 0.5], [4, 0.5], [7, 0.5], [10, 0.5]] };
 export const SECTIONS = [[1, 'La galería'], [4, 'El pozo'], [5, 'La sala de los discos'], [9, 'El jardín de torres']];
 // fuera, todo lejos de las paredes (las secciones llegan a 50 m de la línea)
@@ -22,9 +23,9 @@ const MIN = { stack: 70, blob: 70, disc: 76, wall: 70, head: 80, far: 120, art: 
 
 export function build(T) {
   const K = kit(T), { S, R, rr, sAt, at, L } = K, D = T.decor;
-  buildShell(T, SECT, { windowEvery: 3 });
-  // dentro: formas irregulares en salas, pozo y pasillos
-  artInside(K, T, SECT, { n: 900, kinds: { blob: 3, ribbon: 2, tendril: 2, vase: 2, shard: 1, petal: 3, drip: 2, knot: 1, shell: 2, coral: 2 }, size: [5, 18], colors: 9 });
+  // la cueva: rocas de colores apiladas alrededor de la línea; dentro, cintas, pétalos, tentáculos y caracolas
+  buildCave(K, T, SECT, { kinds: { rock: 10, drip: 1, coral: 1, shell: 1 }, perRing: 10, colors: 9 });
+  caveInside(K, T, SECT, { n: 700, kinds: { ribbon: 2, tendril: 3, petal: 3, shell: 2, knot: 1, coral: 2, vase: 1 }, size: [0.12, 0.35], colors: 9 });
   // fuera: lo de siempre, más lejos
   const near = (lat0, lat1, up0, up1) => { const F = at(R() * L), sd = R() < 0.5 ? -1 : 1, l = rr(lat0, lat1); return new V3(F.P.x + F.Rh.x * sd * l, F.P.y + rr(up0, up1), F.P.z + F.Rh.z * sd * l); };
   for (let k = 0; k < 48; k++) { const p = near(90, 320, 0, 0), r = rr(18, 34), H = rr(70, 240); K.capsule(new V3(p.x, -10, p.z), new V3(p.x, H, p.z), r, 'stack', { H, r }); }

@@ -4,9 +4,9 @@
 // petal (pétalo o fronda), drip (gota que se derrite), knot (nudo), shell (caracola), coral (coral ramificado).
 import { V3 } from '../math.js';
 
-export const ART_KINDS = ['blob', 'ribbon', 'tendril', 'vase', 'shard', 'petal', 'drip', 'knot', 'shell', 'coral'];
+export const ART_KINDS = ['rock', 'blob', 'ribbon', 'tendril', 'vase', 'shard', 'petal', 'drip', 'knot', 'shell', 'coral'];
 // cuánto de la pieza ocupa su colisionador (las cintas y los corales son más huecos)
-const SOLID = { blob: 0.8, ribbon: 0.45, tendril: 0.45, vase: 0.65, shard: 0.7, petal: 0.45, drip: 0.7, knot: 0.55, shell: 0.6, coral: 0.5 };
+const SOLID = { rock: 0.8, blob: 0.8, ribbon: 0.45, tendril: 0.45, vase: 0.65, shard: 0.7, petal: 0.45, drip: 0.7, knot: 0.55, shell: 0.6, coral: 0.5 };
 
 // Añade candidatas al kit K (se validan con K.commit, que quita las que estorben a la línea).
 // o: { n, kinds: { blob: 3, ... } (pesos), lat: [min, max] (distancia lateral a la línea), up: [min, max] (altura sobre

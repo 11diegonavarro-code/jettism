@@ -6,26 +6,27 @@
 // formas pintadas (kit de arte); el estanque queda al aire libre. Fácil. Obstáculos suaves: la cabalgata que gira (se pasa entre las criaturas) y fresas que suben y bajan.
 // JS puro (también se simula en Node); lo que se dibuja está en jardin-view.js.
 import { kit, V3 } from './kit.js';
-import { buildShell, artInside } from './shell.js';
+import { buildCave, caveInside } from './cave.js';
 import { artScatter, artKeep, artFar } from './art.js';
 import { AI_NARROW } from '../ai.js';
 
 export const POND = { x: 400, z: -420, r: 130, ride: 175 };
 const GATES = [
-  [0, 60, 0, 'l'], [40, 50, -260, 'l'], [200, 26, -440, 'l'], [400, 34, -330, 'l'], [600, 28, -430, 'l'], [760, 80, -300, 'l'],
-  [840, 120, -60, 'l'], [700, 90, 180, 'l'], [460, 60, 260, 'l'], [220, 50, 260, 'l'], [80, 66, 230, 'l'], [0, 62, 130, 'l'],
+  [0, 60, 0, 'm'], [40, 50, -260, 'm'], [200, 26, -440, 'l'], [400, 34, -330, 'l'], [600, 28, -430, 'l'], [760, 80, -300, 'm'],
+  [840, 120, -60, 'm'], [700, 90, 180, 'm'], [460, 60, 260, 'm'], [220, 50, 260, 'm'], [80, 66, 230, 'm'], [0, 62, 130, 'm'],
 ];
 // tramos: invernaderos (pasillos de cristal), pabellones con lucernarios, un pozo, y el estanque al aire libre
-export const SECT = [[24, 16, 'c'], [30, 20, 'o'], [30, 20, 'o'], [30, 20, 'o'], [46, 30, 'h'], [30, 44, 'p'], [50, 34, 'h'], [24, 16, 'c'], [46, 30, 'h'], [24, 16, 'c'], [24, 16, 'c'], [30, 20, 'o']];
+export const SECT = [[26, 'n'], [0, 'o'], [0, 'o'], [0, 'o'], [42, 'w'], [32, 'w'], [46, 'w'], [26, 'n'], [42, 'w'], [26, 'n'], [28, 'n'], [0, 'o']];
 export const COURSE = { name: 'Jardín de las delicias', gates: GATES, boosts: [[1, 0.5], [4, 0.5], [8, 0.5]] };
 export const SECTIONS = [[2, 'La cabalgata'], [3, 'El estanque'], [6, 'Las torres'], [8, 'Las frutas']];
 const MIN = { fruit: 66, globe: 64, spire: 24, tower: 40, tree: 62, far: 80, art: 10, artOut: 64 };
 
 export function build(T) {
   const K = kit(T), { R, rr, sAt, at, L } = K, D = T.decor;
-  buildShell(T, SECT, { windowEvery: 2 });
-  artInside(K, T, SECT, { n: 760, kinds: { petal: 4, blob: 2, vase: 2, coral: 2, shell: 2, tendril: 2, drip: 1, ribbon: 2, knot: 1 }, size: [5, 18], colors: 9 });
-  artScatter(K, { n: 240, kinds: { vase: 2, coral: 2, petal: 2, blob: 2, shell: 1, tendril: 1 }, lat: [80, 420], size: [12, 38], ground: true, colors: 9, tag: 'artOut' });
+  // grutas de jardín: rocas rosas, azules y verdes, con corales y caracolas; dentro, pétalos y flores
+  buildCave(K, T, SECT, { kinds: { rock: 9, coral: 2, shell: 1, drip: 1 }, perRing: 10, colors: 9 });
+  caveInside(K, T, SECT, { n: 420, kinds: { petal: 5, coral: 2, shell: 2, tendril: 2, ribbon: 1, vase: 1 }, size: [0.12, 0.35], colors: 9 });
+  artScatter(K, { n: 150, kinds: { vase: 2, coral: 2, petal: 2, blob: 2, shell: 1, tendril: 1 }, lat: [80, 420], size: [12, 38], ground: true, colors: 9, tag: 'artOut' });
   const near = (lat0, lat1) => { const F = at(R() * L), sd = R() < 0.5 ? -1 : 1, l = rr(lat0, lat1); return new V3(F.P.x + F.Rh.x * sd * l, 0, F.P.z + F.Rh.z * sd * l); };
 
   // la fuente rosa del estanque: un tronco con pináculos y una esfera azul arriba

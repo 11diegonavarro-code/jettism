@@ -27,6 +27,8 @@ function smoothSphere() {
   return g;
 }
 const MAKERS = {
+  // roca de cueva: menos detalle (hay miles) y ruido más fuerte, con estratos
+  rock(R, s) { const g = mergeVertices(new THREE.IcosahedronGeometry(1, 3).deleteAttribute('normal').deleteAttribute('uv')), N = noise3(s), p = g.attributes.position, v = new THREE.Vector3(), uv = []; for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const k = 1 + N(v.x * 1.3, v.y * 1.3, v.z * 1.3) * 0.7 + Math.sin(v.y * 9 + s) * 0.04; p.setXYZ(i, v.x * k * 1.15, v.y * k * 0.85, v.z * k); uv.push(Math.atan2(v.z, v.x) / 6.28 + 0.5, v.y * 0.5 + 0.5); } g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.computeVertexNormals(); return g; },
   blob(R, s) { const g = smoothSphere(), N = noise3(s), p = g.attributes.position, v = new THREE.Vector3(); for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const k = 1 + N(v.x * 1.6, v.y * 1.6, v.z * 1.6) * 0.55 + N(v.x * 4, v.y * 4, v.z * 4) * 0.12; p.setXYZ(i, v.x * k, v.y * k * (0.7 + R() * 0.02), v.z * k); } g.computeVertexNormals(); return g; },
   ribbon(R) { const cv = curve(R, 6, 1.4, 0.3), seg = 80, w = 0.35 + R() * 0.3, tw = (R() - 0.5) * 10, pos = [], idx = [], pt = new THREE.Vector3(), tg = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), side = new THREE.Vector3();
     for (let i = 0; i <= seg; i++) { const f = i / seg; cv.getPointAt(f, pt); cv.getTangentAt(f, tg); side.crossVectors(tg, up).normalize().applyAxisAngle(tg, tw * f); const ww = w * Math.sin(Math.PI * Math.min(1, f * 1.2 + 0.05)); pos.push(pt.x + side.x * ww, pt.y + side.y * ww, pt.z + side.z * ww, pt.x - side.x * ww, pt.y - side.y * ww, pt.z - side.z * ww); if (i) idx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i - 1, 2 * i + 1, 2 * i); }
@@ -73,15 +75,15 @@ export function artLayer(cv, palette, o = {}) {
     owned.push(m); return m;
   })());
   const groups = new Map();
-  items.forEach((d, i) => { if (!keep(i)) return; const key = d.art + '|' + d.v; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(d); });
+  items.forEach((d, i) => { if (!keep(i) && !d.cave) return; const key = d.art + '|' + d.v + (d.cave ? '|c' : ''); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(d); });
   const ob = new THREE.Object3D();
   for (const [key, list] of groups) {
-    const [art, v] = key.split('|'), I = new THREE.InstancedMesh(G[art][+v], matFor(art), list.length);
+    const [art, v, cave] = key.split('|'), I = new THREE.InstancedMesh(G[art][+v], matFor(art), list.length);
     list.forEach((d, i) => {
       ob.position.set(d.p.x, d.p.y, d.p.z); ob.rotation.set(d.upright ? (d.rot[0] - 3.14) * 0.15 : d.rot[0], d.rot[1], d.upright ? (d.rot[2] - 3.14) * 0.15 : d.rot[2]); ob.scale.setScalar(d.s); ob.updateMatrix();
       I.setMatrixAt(i, ob.matrix); I.setColorAt(i, cols[d.ci % cols.length]);
     });
-    I.castShadow = I.receiveShadow = true; I.computeBoundingSphere(); root.add(I);
+    I.castShadow = !cave; I.receiveShadow = true; I.computeBoundingSphere(); root.add(I);
   }
   return { dispose() { for (const m of owned) m.dispose(); } };
 }
