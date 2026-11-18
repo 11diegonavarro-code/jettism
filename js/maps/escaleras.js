@@ -75,5 +75,5 @@ export default {
   id: 'escaleras', name: 'Escaleras rojas', key: 'escaleras1', laps: 1, start: 'air', seed: 151,
   blurb: 'Una alcazaba de bloques rojos escalonados: callejones, un patio que se sube en zigzag, un picado, escaleras y pasarelas que cruzan y puertas estrechas que se cierran.',
   course: COURSE, sections: SECTIONS, build, ai: AI_NARROW,
-  medals: { autor: 28.6, oro: 30.2, plata: 33, bronce: 36.6 },
+  medals: { autor: 25.8, oro: 27.8, plata: 31, bronce: 35 },
 };
