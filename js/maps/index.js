@@ -21,6 +21,8 @@ import luzDef from './luz.js';
 import * as luzView from './luz-view.js';
 import liquidoDef from './liquido.js';
 import * as liquidoView from './liquido-view.js';
+import marDef from './mar.js';
+import * as marView from './mar-view.js';
 import jardinDef from './jardin.js';
 import * as jardinView from './jardin-view.js';
 import rostroDef from './rostro.js';
@@ -61,11 +63,13 @@ const ambar = { ...ambarDef, atmo: ambarView.atmo, buildView: ambarView.buildVie
 
 const liquido = { ...liquidoDef, atmo: liquidoView.atmo, buildView: liquidoView.buildView, music: liquidoView.MUSIC, cloudLayout: liquidoView.CLOUDS };
 
+const mar = { ...marDef, atmo: marView.atmo, buildView: marView.buildView, music: marView.MUSIC, cloudLayout: marView.CLOUDS };
+
 // Niveles de la contrarreloj: solo mapas cerrados y técnicos, de la paleta más viva a la más oscura (los que aún no
 // están hechos se saltan y el número de nivel se cuenta con los hechos). Los abiertos van aparte (ARENAS).
 const LEVELS = ['collage', 'jardin', 'torres', 'rostro', 'ambar', 'liquido', 'tunel', 'mar', 'laberinto', 'escaleras', 'plano', 'nudos', 'ojos', 'luz', 'estelar'];
 const ARENAS = ['desierto', 'espiral', 'campo'];
-const all = { collage, jardin, torres, rostro, desierto, ambar, liquido, espiral, tunel, laberinto, plano, nudos, campo, luz };
+const all = { collage, jardin, torres, rostro, desierto, ambar, liquido, espiral, tunel, mar, laberinto, plano, nudos, campo, luz };
 // dificultad por tramos, como en los juegos de plataformas de ritmo; los Demonio: un choque y a empezar
 export const DIFFS = [['Fácil', '#58f0a0'], ['Normal', '#3ee8ff'], ['Difícil', '#f2b630'], ['Muy difícil', '#f97316'], ['Locura', '#ec4899'], ['Demonio', '#ff2a2a']];
 const N = LEVELS.length, tier = i => Math.min(DIFFS.length - 1, Math.floor((i * DIFFS.length) / N));

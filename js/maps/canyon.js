@@ -43,8 +43,9 @@ export function buildCanyon(T, ZONES, o = {}) {
   // escalones gigantes bajo la línea
   for (let s = 0; s < L; s += 7) { const z = zoneOf(s); if (!z.steps) continue; const f = at(s), top = Math.max(4, f.P.y - 26); box(new V3(f.P.x, top / 2, f.P.z), new V3(3.7, top / 2, z.W + 3), f.yaw, 'step', null); }
   // arcos que hay que atravesar
-  const arches = [], gateNear = s => cp.some(g => Math.min(Math.abs(S.wrap(s - g)), Math.abs(S.wrap(g - s))) < 30);
-  for (let s = 60; s < L - 150; s += 20) {
+  const arches = [], gateNear = s => cp.some(g => Math.min(Math.abs(S.wrap(s - g)), Math.abs(S.wrap(g - s))) < 40);
+  // ni en los primeros 140 m (se llega recortando la curva de la salida) ni en los últimos 150 (salida lanzada)
+  for (let s = 140; s < L - 150; s += 20) {
     const z = zoneOf(s);
     if (!z.arches || gateNear(s) || (arches.length && s - arches[arches.length - 1].s < z.arches)) continue;
     const f = at(s), top = f.P.y + Math.max(60, z.top[0]), hole = { hw: z.archHW || Math.min(24, z.W - 3), hh: z.archHH || 32, y: f.P.y - 20 - top / 2 };
