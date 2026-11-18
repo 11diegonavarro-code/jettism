@@ -190,3 +190,30 @@ export function opTexture({ kind = 'rainbow', colors = ['#ff3b30', '#ff9500', '#
     return C[((i % C.length) + C.length) % C.length].map(k => k * edge);
   });
 }
+
+// Pliego de dibujo técnico: papel con cuadrícula fina y gruesa, círculos y arcos a tinta (se repite sin costuras)
+export function diagramTexture({ size = 1024, paper = '#efe3c6', ink = 'rgba(60,40,25,', seed = 31 } = {}) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d'), R = rng(seed);
+  g.fillStyle = paper; g.fillRect(0, 0, size, size);
+  for (let i = 0; i < size * 6; i++) { g.fillStyle = `rgba(110,80,40,${R() * 0.06})`; g.fillRect(R() * size, R() * size, 1 + R() * 3, 1 + R() * 3); }
+  const line = (a, w) => { g.strokeStyle = ink + a + ')'; g.lineWidth = w; };
+  const step = size / 32;
+  for (let k = 0; k <= 32; k++) { line(k % 4 ? 0.13 : 0.32, k % 4 ? 1 : 2); g.beginPath(); g.moveTo(k * step, 0); g.lineTo(k * step, size); g.moveTo(0, k * step); g.lineTo(size, k * step); g.stroke(); }
+  // círculos y arcos de compás (repetidos en los bordes para que no se note la costura)
+  for (let k = 0; k < 7; k++) {
+    const x = R() * size, y = R() * size, r = size * (0.06 + R() * 0.3), a0 = R() * 6.28, a1 = a0 + 1 + R() * 5;
+    line(0.45, 2);
+    for (const dx of [-size, 0, size]) for (const dy of [-size, 0, size]) { g.beginPath(); g.arc(x + dx, y + dy, r, a0, a1); g.stroke(); }
+    g.fillStyle = ink + '0.6)'; g.beginPath(); g.arc(x, y, 3, 0, 6.28); g.fill();
+  }
+  // rectángulos áureos anidados
+  { let w = size * 0.5, h = w / 1.618, x = size * 0.25, y = size * 0.3; line(0.5, 2.5);
+    for (let k = 0; k < 6; k++) { g.strokeRect(x, y, w, h); const a = Math.min(w, h); if (k % 2) { y += a; h -= a; } else { x += a; w -= a; } } }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
