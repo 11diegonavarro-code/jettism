@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { noiseTexture } from '../textures.js';
 import { triplanar } from '../materials.js';
 import { rng } from '../math.js';
-import { artLayer } from './art-view.js';
+import { canyonLayer } from './canyon-view.js';
 
 const v3 = p => new THREE.Vector3(p.x, p.y, p.z);
 let TEX = null;
@@ -158,10 +158,10 @@ export function buildView(cv) {
       movers.push(() => me.position.copy(v3(c.c)));
     }
   }
-  // las grutas y lo de dentro: turquesas, rosas, magenta y blanco
-  const art = artLayer(cv, ['#1d847e', '#2aae9f', '#63dcc4', '#c46aa2', '#e898c0', '#f4eef0'], { rough: 0.6 });
+  // los pasajes: fachadas turquesa con relieves rosas, ventanas magenta y esculturas turquesa, rosa y blanca
+  const arch = canyonLayer(cv, { wall: teal, relief: mat(triplanar(new THREE.MeshStandardMaterial({ map: t.pink, roughness: 0.8 }), { scale: 1 / 20 })), niche: '#4a1846', lamp: '#ffc6e2', shaft: '#ffe2ee', dust: '#ffe8f2', sculpt: ['#1d847e', '#2aae9f', '#63dcc4', '#c46aa2', '#e898c0', '#f4eef0'], sculptKinds: ['blob', 'shard', 'knot', 'vase', 'shell'], seed: 31 });
   return {
-    update() { for (const f of movers) f(); },
-    dispose() { art.dispose(); for (const m of owned) m.dispose(); },
+    update(time) { for (const f of movers) f(); arch.update(time); },
+    dispose() { arch.dispose(); for (const m of owned) m.dispose(); },
   };
 }

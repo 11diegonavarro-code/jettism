@@ -10,6 +10,7 @@ import { triplanar } from '../materials.js';
 import { rng } from '../math.js';
 import { FACE } from './rostro.js';
 import { artLayer } from './art-view.js';
+import { canyonLayer } from './canyon-view.js';
 
 const v3 = p => new THREE.Vector3(p.x, p.y, p.z);
 const PAL = ['#e8432f', '#ffcf3a', '#2f6fe0', '#21b573', '#ff6fb5', '#1a1a1a', '#f4f1ea', '#7a3cff', '#ff8a1a'];
@@ -128,6 +129,7 @@ export function buildView(cv) {
 
   // ---------- el campo: el kit de formas irregulares con la paleta del collage ----------
   const art = artLayer(cv, PAL.filter(c => c !== '#1a1a1a').concat(['#ff3b6f', '#00c2b8']), { rough: 0.5 });
+  const arch = canyonLayer(cv, { wall: patM[2], relief: patM[0], niche: '#2a1040', lamp: '#fff0c8', shaft: '#fff4e0', dust: '#fff0f6', sculpt: PAL.filter(c => c !== '#1a1a1a'), seed: 41 });
   const sph = own(new THREE.SphereGeometry(1, 32, 20));
   const inst = (geo, m, list, set) => { if (!list.length) return null; const I = new THREE.InstancedMesh(geo, m, list.length); list.forEach((d, i) => { set(d); o.updateMatrix(); I.setMatrixAt(i, o.matrix); }); I.castShadow = I.receiveShadow = true; root.add(I); return I; };
   // setas de lunares y pilares de ajedrez
@@ -156,5 +158,5 @@ export function buildView(cv) {
       movers.push(() => { me.position.set(c.c.x, c.c.y, c.c.z); me.rotation.y += 0.01; });
     }
   }
-  return { update() { for (const f of movers) f(); }, dispose() { art.dispose(); for (const m of owned) m.dispose(); for (const g of geos) g.dispose(); } };
+  return { update(time) { for (const f of movers) f(); arch.update(time); }, dispose() { arch.dispose(); art.dispose(); for (const m of owned) m.dispose(); for (const g of geos) g.dispose(); } };
 }

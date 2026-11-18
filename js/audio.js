@@ -11,21 +11,24 @@ export const ENGINE_SOUND = {
 
 // Motor de otro jet, en 3D y con efecto Doppler hecho a mano (Web Audio ya no lo trae)
 const C_SOUND = 343;
+// El mismo motor arcade que el del jugador (ver Sound.engine): así suena igual en la partida y en la repetición
+export const ENGINE_LEVEL = 0.02; // muy bajo: manda la música
+export function engineTone(rpm, boost, pitch) { return { f0: (55 + rpm * 85 + (boost ? 18 : 0)) * pitch, cut: 350 + rpm * 1700 + (boost ? 700 : 0) }; }
 export class RemoteVoice {
   constructor(sound, type = 'doble') {
     this.k = (ENGINE_SOUND[type] || ENGINE_SOUND.doble).pitch;
     const ctx = this.ctx = sound.ctx;
-    this.osc = ctx.createOscillator(); this.osc.type = 'sawtooth'; this.osc.frequency.value = 160;
-    this.osc2 = ctx.createOscillator(); this.osc2.type = 'sine'; this.osc2.frequency.value = 900;
-    const o2g = ctx.createGain(); o2g.gain.value = 0.25;
-    this.noise = ctx.createBufferSource(); this.noise.buffer = sound.brown; this.noise.loop = true;
-    this.filter = ctx.createBiquadFilter(); this.filter.type = 'lowpass'; this.filter.frequency.value = 900;
+    this.e1 = ctx.createOscillator(); this.e1.type = 'sawtooth';
+    this.e2 = ctx.createOscillator(); this.e2.type = 'square'; this.e2.detune.value = 9;
+    this.sub = ctx.createOscillator(); this.sub.type = 'sine';
+    const e2g = ctx.createGain(), subg = ctx.createGain(); e2g.gain.value = 0.5; subg.gain.value = 0.9;
+    this.filter = ctx.createBiquadFilter(); this.filter.type = 'lowpass'; this.filter.Q.value = 6; this.filter.frequency.value = 600;
     this.gain = ctx.createGain(); this.gain.gain.value = 0;
     this.panner = ctx.createPanner();
-    Object.assign(this.panner, { panningModel: 'equalpower', distanceModel: 'inverse', refDistance: 35, maxDistance: 3000, rolloffFactor: 1.3 });
-    this.osc.connect(this.filter); this.osc2.connect(o2g).connect(this.filter); this.noise.connect(this.filter);
+    Object.assign(this.panner, { panningModel: 'equalpower', distanceModel: 'inverse', refDistance: 20, maxDistance: 3000, rolloffFactor: 1.3 });
+    this.e1.connect(this.filter); this.e2.connect(e2g).connect(this.filter); this.sub.connect(subg).connect(this.gain);
     this.filter.connect(this.gain).connect(this.panner).connect(sound.master);
-    this.osc.start(); this.osc2.start(); this.noise.start(0, Math.random());
+    for (const o of [this.e1, this.e2, this.sub]) o.start();
   }
   // src y lis: { p, v } posición y velocidad de la fuente y del oyente
   update(src, lis, boost, on) {
@@ -33,17 +36,16 @@ export class RemoteVoice {
     const dx = lis.p.x - src.p.x, dy = lis.p.y - src.p.y, dz = lis.p.z - src.p.z, d = Math.hypot(dx, dy, dz) || 1;
     const ux = dx / d, uy = dy / d, uz = dz / d;
     const vs = src.v.x * ux + src.v.y * uy + src.v.z * uz, vl = lis.v.x * ux + lis.v.y * uy + lis.v.z * uz;
-    const k = Math.min(2.2, Math.max(0.5, (C_SOUND - vl) / (C_SOUND - vs)));
-    const speed = Math.hypot(src.v.x, src.v.y, src.v.z), base = (120 + speed * 0.9 + (boost ? 60 : 0)) * this.k;
-    this.osc.frequency.setTargetAtTime(base * k, t, 0.05);
-    this.osc2.frequency.setTargetAtTime((700 + speed * 4) * k, t, 0.05);
-    this.filter.frequency.setTargetAtTime((boost ? 1800 : 1100) * k, t, 0.05);
-    this.gain.gain.setTargetAtTime(on ? (boost ? 0.26 : 0.17) : 0, t, 0.08);
+    const k = Math.min(1.6, Math.max(0.7, (C_SOUND - vl) / (C_SOUND - vs)));
+    const speed = Math.hypot(src.v.x, src.v.y, src.v.z), rpm = Math.min(1, 0.35 + speed / 200 + (boost ? 0.3 : 0)), T = engineTone(rpm, boost, this.k);
+    this.e1.frequency.setTargetAtTime(T.f0 * k, t, 0.05); this.e2.frequency.setTargetAtTime(T.f0 * 2 * k, t, 0.05); this.sub.frequency.setTargetAtTime(T.f0 / 2 * k, t, 0.05);
+    this.filter.frequency.setTargetAtTime(T.cut * k, t, 0.05);
+    this.gain.gain.setTargetAtTime(on ? ENGINE_LEVEL * (boost ? 1.5 : 1) : 0, t, 0.08);
     const P = this.panner;
     if (P.positionX) { P.positionX.value = src.p.x; P.positionY.value = src.p.y; P.positionZ.value = src.p.z; } else P.setPosition(src.p.x, src.p.y, src.p.z);
   }
   dispose() {
-    try { this.osc.stop(); this.osc2.stop(); this.noise.stop(); } catch { /* ya parado */ }
+    try { this.e1.stop(); this.e2.stop(); this.sub.stop(); } catch { /* ya parado */ }
     this.panner.disconnect();
   }
 }
@@ -124,22 +126,23 @@ export class Sound {
   engine({ power = 0, boost = false, speed = 0, slip = 0, on = true }) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime, k = 0.08, o = on ? 1 : 0;
-    const rpm = Math.min(1, power * 0.75 + (boost ? 0.35 : 0) + speed / 600);
+    // el mismo cálculo que RemoteVoice: así tu jet suena igual en la partida y en la repetición
+    const rpm = Math.min(1, 0.35 + speed / 200 + (boost ? 0.3 : 0)); void power;
     const E = this.eng, f = E.base + rpm * E.span;
     this.t1.frequency.setTargetAtTime(f, t, k);
     this.t2.frequency.setTargetAtTime(f * 1.505, t, k);
     // más bajo que antes: la música manda
-    this.turbine.gain.setTargetAtTime(o * (0.008 + rpm * 0.012) * E.whine, t, k);
-    const f0 = (55 + rpm * 85 + (boost ? 18 : 0)) * E.pitch;
+    this.turbine.gain.setTargetAtTime(o * (0.002 + rpm * 0.003) * E.whine, t, k);
+    const TN = engineTone(rpm, boost, E.pitch), f0 = TN.f0;
     this.e1.frequency.setTargetAtTime(f0, t, k); this.e2.frequency.setTargetAtTime(f0 * 2, t, k); this.sub.frequency.setTargetAtTime(f0 / 2, t, k);
-    this.roarF.frequency.setTargetAtTime((350 + rpm * 1700 + (boost ? 700 : 0)) * (E.roar > 1 ? 0.8 : 1), t, k);
-    this.roar.gain.setTargetAtTime(o * (0.035 + power * 0.045) * E.roar, t, k);
-    this.burn.gain.setTargetAtTime(o * (boost ? 0.08 : 0), t, 0.06);
+    this.roarF.frequency.setTargetAtTime(TN.cut, t, k);
+    this.roar.gain.setTargetAtTime(o * ENGINE_LEVEL * (boost ? 1.5 : 1), t, k);
+    this.burn.gain.setTargetAtTime(o * (boost ? 0.02 : 0), t, 0.06);
     this.burnF.frequency.setTargetAtTime(boost ? 1400 + Math.random() * 600 : 500, t, 0.03);
-    this.rumbleG.gain.setTargetAtTime(o * (boost ? 0.1 : 0.015 + power * 0.02), t, 0.08);
+    this.rumbleG.gain.setTargetAtTime(o * (boost ? 0.025 : 0.005), t, 0.08);
     const w = Math.min(1, speed / 160);
     this.windF.frequency.setTargetAtTime(300 + w * 1300 + slip * 600, t, 0.1);
-    this.wind.gain.setTargetAtTime(o * (w * w * 0.12 + slip * 0.08), t, 0.1);
+    this.wind.gain.setTargetAtTime(o * (w * w * 0.04 + slip * 0.03), t, 0.1);
   }
 
   silence() { this.engine({ on: false }); }
