@@ -238,10 +238,10 @@ export function createWorld(renderer, qualityName) {
     composer.addPass(new OutputPass());
     if (!Q.msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
     finalPass = new ShaderPass({
-      uniforms: { uSat: { value: 1.12 }, uContrast: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGrain: { value: 0 }, uKeepRed: { value: 0 }, uVigMin: { value: 0.74 }, uGT: { value: 0 },
+      uniforms: { uChroma: { value: 0 }, uPulse: { value: 0 }, uGrainAdd: { value: 0 }, uSat: { value: 1.12 }, uContrast: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGrain: { value: 0 }, uKeepRed: { value: 0 }, uVigMin: { value: 0.74 }, uGT: { value: 0 },
         tDiffuse: { value: null }, uBlur: { value: 0 }, uHeatA: { value: new THREE.Vector4() }, uHeatB: { value: new THREE.Vector4() }, uHeatW: { value: new THREE.Vector2() }, uTime: { value: 0 }, uAspect: { value: 1 } },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; uniform float uSat, uContrast, uGrain, uKeepRed, uVigMin, uGT; uniform vec3 uTint; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; uniform float uSat, uContrast, uGrain, uKeepRed, uVigMin, uGT, uChroma, uPulse, uGrainAdd; uniform vec3 uTint; varying vec2 vUv;
         float gHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
         // distorsión de calor: un cono que sale de cada tobera, ondulando, más ancho y más flojo cuanto más lejos
         vec2 heat(vec2 uv, vec4 seg) {
@@ -260,6 +260,8 @@ export function createWorld(renderer, qualityName) {
           vec2 uvH = vUv;
           if (uHeatW.y > 0.0) uvH += heat(vUv, uHeatA) + heat(vUv, uHeatB);
           vec4 col = texture2D(tDiffuse, uvH);
+          // tensión: los colores se separan hacia los bordes
+          if (uChroma > 0.0) { vec2 dc = c * uChroma * (0.3 + length(c) * 1.4); col.r = texture2D(tDiffuse, uvH + dc).r; col.b = texture2D(tDiffuse, uvH - dc).b; }
           if (uBlur > 0.002) {
             float k = uBlur * 0.055 * smoothstep(0.12, 0.65, length(c));
             vec3 acc = col.rgb;
@@ -272,8 +274,8 @@ export function createWorld(renderer, qualityName) {
           col.rgb = mix(vec3(l), col.rgb, mix(uSat, 1.3, red * uKeepRed));
           col.rgb = (col.rgb - 0.5) * uContrast + 0.5;
           col.rgb *= uTint;
-          if (uGrain > 0.0) col.rgb += (gHash(gl_FragCoord.xy + fract(uGT * 7.13) * 917.0) - 0.5) * uGrain;
-          col.rgb *= mix(uVigMin, 1.0, smoothstep(0.85, 0.28, length(c * vec2(1.0, 0.82))));
+          if (uGrain + uGrainAdd > 0.0) col.rgb += (gHash(gl_FragCoord.xy + fract(uGT * 7.13) * 917.0) - 0.5) * (uGrain + uGrainAdd);
+          col.rgb *= mix(max(0.0, uVigMin - uPulse), 1.0, smoothstep(0.85, 0.28 - uPulse * 0.25, length(c * vec2(1.0, 0.82))));
           gl_FragColor = col;
         }`,
     });
@@ -296,6 +298,8 @@ export function createWorld(renderer, qualityName) {
     scene, camera, quality: Q, sun, resize, atm, lightDir, mirrorHooks,
     render() { composer ? composer.render() : renderer.render(scene, camera); },
     setPixelRatio(pr) { renderer.setPixelRatio(pr); resize(); },
+    // Efectos de tensión: chroma (separación de colores), pulse (la viñeta se cierra), grain (grano extra)
+    setTension(chroma, pulse, grain) { if (!finalPass) return; const U = finalPass.uniforms; U.uChroma.value = chroma; U.uPulse.value = pulse; U.uGrainAdd.value = grain; },
     setBlur(k) { if (finalPass && Q.blur) finalPass.uniforms.uBlur.value = k; },
     // Calor del escape: a y b son tramos [x0, y0, x1, y1] en coordenadas de pantalla 0..1 (o null); width en pantalla; strength 0 lo apaga
     setHeat(a, b, width, strength, t) {

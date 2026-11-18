@@ -69,7 +69,17 @@ renderer.setSize(innerWidth, innerHeight);
 document.body.prepend(renderer.domElement);
 const world = createWorld(renderer, settings.quality);
 const { scene, camera } = world;
-settings.map = mapById(store.get('jt-map', 'desierto')).id;
+// Niveles: el primero siempre está abierto; cada uno se abre con el bronce del anterior (con ?debug o ?todos, todos abiertos)
+const unlockAll = DEBUG || params.has('todos');
+const bestOf = m => +store.get(`jt-${m.key}-total`, 0) || null;
+function unlocked(m) {
+  const i = MAPS.indexOf(m);
+  if (unlockAll || i <= 0) return true;
+  const prev = MAPS[i - 1], b = bestOf(prev);
+  return !!b && b <= prev.medals.bronce;
+}
+settings.map = mapById(store.get('jt-map', MAPS[0].id)).id;
+if (!unlocked(mapById(settings.map))) settings.map = [...MAPS].reverse().find(unlocked).id;
 const track = new Track(mapById(settings.map));
 MAP = track.map.key;
 const view = new CourseView(scene, track, world.quality);
@@ -206,8 +216,10 @@ function openMaps() {
   box.innerHTML = '';
   for (const m of MAPS) {
     const best = +store.get(`jt-${m.key}-total`, 0) || null, md = medalOf(m, best), b = document.createElement('button');
-    b.className = 'mapCard' + (m.id === track.map.id ? ' on' : '');
-    b.innerHTML = `<div class="thumb" style="background-image:url(img/mapas/${m.id}.jpg)"></div><b>${esc(m.name)}</b><small>${esc(m.blurb || '')}</small>` +
+    const open = unlocked(m), prev = MAPS[MAPS.indexOf(m) - 1];
+    b.className = 'mapCard' + (m.id === track.map.id ? ' on' : '') + (open ? '' : ' locked');
+    b.disabled = !open;
+    b.innerHTML = `<div class="thumb" style="background-image:url(img/mapas/${m.id}.jpg)">${open ? '' : '<span class="lock">🔒</span>'}</div><b>Nivel ${m.level} · ${esc(m.name)}</b><small>${open ? esc(m.blurb || '') : `Se abre con el bronce (${fmtTime(prev.medals.bronce)}) en «${esc(prev.name)}».`}</small>` +
       `<span class="mrow">${md ? `${md[1]} ${md[2]}` : 'Sin medalla'} · tu mejor: ${best ? fmtTime(best) : '—'}</span>` +
       `<span class="mrow dim">Contrarreloj de ${m.laps} ${m.laps === 1 ? 'vuelta' : 'vueltas'} · oro ${fmtTime(m.medals.oro)} · autor ${fmtTime(m.medals.autor)}</span>`;
     b.onclick = () => { selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); };
@@ -513,7 +525,7 @@ function renderLobby() {
   L.bots = Math.min(L.bots, maxBots);
   $('hostOpts').hidden = !hosting;
   if (hosting) {
-    $('mapSel').innerHTML = MAPS.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    $('mapSel').innerHTML = MAPS.filter(unlocked).map(m => `<option value="${m.id}">Nivel ${m.level} · ${esc(m.name)}</option>`).join('');
     $('mapSel').value = track.map.id;
     fillCourseSelect($('courseSel'), L.course || '');
   }
@@ -1069,8 +1081,10 @@ function onFinish(e) {
   }
   hud.center('¡META!', '', 2.4);
   const total = e.time, prevTotal = rec.total, newTotal = !rec.total || total < rec.total, newStyle = style.total > rec.style;
+  const nextLevel = track.custom ? null : MAPS[MAPS.indexOf(track.map) + 1], wasOpen = nextLevel && unlocked(nextLevel);
   if (newTotal) { rec.total = total; store.set(`jt-${MAP}-total`, total.toFixed(3)); store.set(`jt-${MAP}-splits`, JSON.stringify(run.splits)); publishRecord(total); }
   if (prevTotal && run.splits.length) showSplit(total - prevTotal);
+  if (nextLevel && !wasOpen && unlocked(nextLevel)) { setTimeout(() => { toast(`¡Nivel ${nextLevel.level} desbloqueado: ${nextLevel.name}!`); sound.sfx('record'); }, 1200); }
   const md = track.custom ? null : medalOf(track.map, total), best = track.custom ? null : medalOf(track.map, rec.total);
   const nextM = track.custom ? null : [...MEDALS].reverse().find(([k]) => track.map.medals[k] < rec.total);
   const medalLine = track.custom ? '' : `<p style="text-align:center;font-weight:800">${md ? `${md[1]} Medalla de ${md[2].toLowerCase()}` : 'Sin medalla'}${nextM ? ` · siguiente: ${nextM[1]} ${fmtTime(track.map.medals[nextM[0]])} (te faltan ${(rec.total - track.map.medals[nextM[0]]).toFixed(3).replace('.', ',')} s)` : best ? ' · ¡tienes todas!' : ''}</p>`;
@@ -1349,6 +1363,21 @@ function updateCamera(dt) {
   if (Math.abs(camera.fov - cam.fov) > 0.05) { camera.fov = cam.fov; camera.updateProjectionMatrix(); fx.setPointScale(renderer, camera); }
   world.setBlur(game.phase === 'menu' ? 0 : clamp((jet.speed - 100) / 50, 0, 1) * (jet.boosting ? 1 : 0.55));
   world.followSun(jet.alive ? rp : cam.crashLook);
+}
+
+// ---------- Tensión: cuanto más alto el nivel, más se nota (fuerte, a petición de Diego) ----------
+// la cámara tiembla con la velocidad, se balancea, el campo de visión late con el bombo y los colores se separan
+const _sh = new THREE.Vector3();
+function tensionFx(dt) {
+  const k = track.map.tension || 0, racing = game.phase === 'race' || game.phase === 'countdown', T = k * (racing ? 1 : game.phase === 'menu' ? 0.3 : 0.6);
+  const b = music.beat(), pulse = Math.pow(1 - b, 5);
+  world.setTension(T * 0.011 + (jet.boosting ? T * 0.008 : 0), T * 0.2 * pulse, T * 0.08);
+  if (T < 0.01 || game.paused) return;
+  const sp = clamp((jet.speed - 70) / 70, 0, 1), sh = T * (0.18 + sp * 0.55);
+  camera.position.add(_sh.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh));
+  camera.rotateZ(Math.sin(game.clock * 0.8) * 0.045 * T + Math.sin(game.clock * 2.3) * 0.012 * T);
+  camera.fov = cam.fov + pulse * 3 * T;
+  camera.updateProjectionMatrix();
 }
 
 // ---------- Calor del escape (distorsión en la imagen detrás de las toberas de mi jet) ----------
@@ -1643,6 +1672,7 @@ function frame(now) {
   }
   if (photo.on) photoCamera(dt, rp, rq); else updateCamera(dt);
   updateHeat();
+  if (photo.on) world.setTension(0, 0, 0); else tensionFx(dt);
   if (!photo.on) drawHud(dt);
   updateVoices(dt);
   if (playing() && !game.paused && sound.ctx) {
@@ -1703,6 +1733,7 @@ function replayFocusRacer() { return racerById(recorder.ids[replay.focus]); }
 let rpBarT = 0;
 function replayFrame(dt) {
   const R = replay;
+  world.setTension(0, 0, 0);
   world.setHeat(null, null, 0, 0);
   // teclado: espacio pausa, flechas avanzan o retroceden, A/D cambian de piloto, C la cámara, Esc sale
   if (!photo.on) {
@@ -1955,6 +1986,7 @@ function closeEditorUI() {
   view.courseGroup.visible = true; items.group.visible = items.on;
 }
 function editorFrame(dt) {
+  world.setTension(0, 0, 0);
   world.setHeat(null, null, 0, 0);
   editor.update(dt, input.keys);
   game.clock += dt;
@@ -2266,7 +2298,7 @@ if (DEBUG) {
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
     startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
     items, recorder, photo, music, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
-    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
+    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, unlocked, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },

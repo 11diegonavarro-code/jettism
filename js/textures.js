@@ -173,3 +173,20 @@ export function dotTexture() {
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 }
+
+// ---------- Op-art (collage psicodélico) ----------
+// kind: 'rainbow' bandas de colores · 'zebra' rayas onduladas · 'rings' anillos concéntricos · 'spiral' espiral
+// colors: lista de colores que se repiten; bands: cuántas bandas por textura
+export function opTexture({ kind = 'rainbow', colors = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de'], bands = 12, size = 512, seed = 1 }) {
+  const C = colors.map(hex), n = fbm(size, 3, 3, 3, seed);
+  return canvasTex(size, (x, y) => {
+    const u = x / size, v = y / size, w = n[y * size + x];
+    let t;
+    if (kind === 'rainbow') t = v * bands + Math.sin(u * Math.PI * 4) * 0.35 + w * 0.3;
+    else if (kind === 'zebra') t = v * bands + Math.sin(u * Math.PI * 6 + Math.sin(v * Math.PI * 4) * 1.5) * 1.2 + w * 1.2;
+    else if (kind === 'rings') t = Math.hypot(u - 0.5, v - 0.5) * bands * 2 + w * 0.25;
+    else t = Math.hypot(u - 0.5, v - 0.5) * bands * 2 + (Math.atan2(v - 0.5, u - 0.5) / (Math.PI * 2)) * 2 + w * 0.2;
+    const i = Math.floor(t), f = t - i, edge = Math.min(f, 1 - f) < 0.05 ? 0.85 : 1;
+    return C[((i % C.length) + C.length) % C.length].map(k => k * edge);
+  });
+}

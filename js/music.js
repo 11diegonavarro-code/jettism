@@ -8,7 +8,14 @@ const hz = m => 440 * 2 ** ((m - 69) / 12);
 export class Music {
   constructor(sound) { this.sound = sound; this.mode = 'menu'; this.volume = 0.35; this.on = false; this.step = 0; this.timer = null; this.setTheme(null); }
   // Tema de cada mapa: { bpm, chords } (null: el del desierto)
-  setTheme(t) { this.chords = t?.chords || CHORDS; this.dur = 60 / (t?.bpm || BPM) / 4; if (this.delay) this.delay.delayTime.value = this.dur * 3; }
+  // tension (0..1): cuanto más alta, más oscura, más grave y más percusión
+  setTheme(t) {
+    this.chords = t?.chords || CHORDS; this.dur = 60 / (t?.bpm || BPM) / 4; this.tension = t?.tension || 0;
+    if (this.delay) this.delay.delayTime.value = this.dur * 3;
+    if (this.padF) this.padF.frequency.value = 900 - this.tension * 520;
+  }
+  // Fase del pulso (0..1, 0 en cada negra), para que la cámara lata con la música
+  beat() { return this.on && this.ctx ? (((this.ctx.currentTime - (this.origin || 0)) / (this.dur * 4)) % 1 + 1) % 1 : 0; }
 
   start() {
     const S = this.sound;
@@ -33,7 +40,7 @@ export class Music {
     }
     this.on = true;
     this.out.gain.setTargetAtTime(this.volume * 0.55, ctx.currentTime, 1.2);
-    this.next = ctx.currentTime + 0.1;
+    this.next = ctx.currentTime + 0.1; this.origin = this.next;
     this.timer = setInterval(() => this.schedule(), 100);
   }
   stop() {
@@ -63,11 +70,17 @@ export class Music {
     // arpegio: notas del acorde en un orden que cambia cada compás
     const pat = [0, 2, 3, 4, 2, 3, 1, 4], on = race ? s % 2 === 0 || s === 7 || s === 15 : s % 4 === 0;
     if (on) this.pluck(chord[pat[(s + bar) % pat.length]] + 12, t, race ? 0.07 : 0.09);
+    const k = this.tension;
     if (race) {
-      if (s === 0 || s === 8 || (s === 14 && bar % 2)) this.kick(t);
+      if (s === 0 || s === 8 || (s === 14 && bar % 2) || (k > 0.55 && s % 4 === 0)) this.kick(t);
       if (s === 4 || s === 12) this.snare(t);
-      if (s % 2 === 1) this.hat(t, s % 4 === 3 ? 0.05 : 0.03);
-    }
+      if (s % 2 === 1 || (k > 0.7 && s % 2 === 0)) this.hat(t, s % 4 === 3 ? 0.05 : 0.03);
+      // latido doble en los niveles más oscuros
+      if (k > 0.85 && (s === 0 || s === 3)) this.kick(t + 0.001);
+    } else if (k > 0.55 && s % 8 === 0) this.kick(t);
+    // bordón grave a partir de la mitad, y notas disonantes (medio tono por encima) al final
+    if (k > 0.35 && s === 0) this.bass(chord[0] - 24, t, STEP * 16, 0.08 + k * 0.1);
+    if (k > 0.7 && s === 6 && bar % 2) this.pluck(chord[0] + 13, t, 0.05 + k * 0.04);
   }
   env(g, t, a, peak, d) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + d); }
   pad(chord, t, dur) {

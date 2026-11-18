@@ -13,15 +13,17 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
   - Humo y llama de color, casco del piloto, y número y nombre en la cola.
   - Cada motor suena distinto, y tu jet llega así a la sala online.
 
-- **Mapas:**
-  - **Desierto de los sueños:** surrealista, abierto, con contrarreloj de 3 vueltas.
+- **Niveles:** cada mapa es un nivel. El 1 es el más vivo y fácil; cada nivel siguiente es más difícil, más oscuro y lúgubre, con una música más rápida y tenebrosa y una cámara más tensa (temblor, balanceo, pulso con el bombo, grano y colores que se separan). El siguiente nivel se abre con el bronce en el anterior.
+- **Mapas** (todos con contrarreloj de 1 vuelta):
+  - **Collage psicodélico (nivel 1):** abierto y luminoso, de formas op-art: torres de discos rojos apilados, manchas con rayas de cebra, discos gigantes de anillos de colores, muros de bandas arcoíris y un busto enorme de anillos. Manchas que suben y bajan y bolas rojas que orbitan.
+  - **Desierto de los sueños:** surrealista y abierto.
   - **Laberinto de hormigón:** brutalista, estrecho y técnico, con contrarreloj de 1 vuelta. Arcos que atravesar, rampas curvas, escalinata gigante, sótano de pilares y pozo de luz. Pistones, compuertas y aspas giratorias.
   - **Torres turquesa:** una ciudad de torres brutalistas sobre una bruma rosa, con contrarreloj de 1 vuelta. Túneles que atraviesan torres, pasarelas por encima y por debajo, una pasarela blanca a ras de la bruma y planetas en el cielo. Esferas que orbitan, losas que salen de las fachadas y plataformas que suben y bajan.
   - **Nudos de autopista:** hormigón gris bajo la lluvia, con contrarreloj de 1 vuelta. Tres bucles de autopista que se atraviesan por dentro, un nudo en hélice por el que se baja en espiral y un bosque de pilares bajo un tablero enorme. Hay tráfico de verdad (coches y camiones que chocan), pórticos de señales y farolas.
 - **Modo récords:** salida lanzada, reinicio instantáneo (Retroceso), parciales en cada puerta contra tu récord, medallas de bronce, plata, oro y autor, fantasma de tu mejor vuelta, retos a un amigo con un enlace que lleva tu fantasma, y una tabla mundial pública con el fantasma de cada piloto.
 - Vuelo arcade con derrape aéreo, turbo, roces y estampido sónico.
 - Diez piruetas, por combo (Espacio + dirección) o hechas a mano, con cadenas de estilo.
-- Contrarreloj de 3 vueltas con fantasma de tu mejor vuelta, y vuelo libre.
+- Contrarreloj con fantasma de tu mejor vuelta, y vuelo libre.
 - **Carreras de hasta 8 jets:** contra bots (fáciles, normales o difíciles) o online con amigos. La sala se crea con un enlace y se espera volando juntos por el mapa.
 - **En carrera con más jets:**
   - rebufo: detrás de otro jet vas más rápido y cargas turbo;

@@ -181,6 +181,9 @@
   .mapCard small { color: var(--muted); font-weight: 600; font-size: 12.5px; line-height: 1.35; }
   .mapCard .mrow { font-size: 13px; font-weight: 800; }
   .mapCard .mrow.dim { color: var(--muted); font-weight: 700; }
+  .mapCard.locked { opacity: .55; cursor: not-allowed; }
+  .mapCard.locked .thumb { filter: grayscale(1) brightness(.6); display: grid; place-items: center; }
+  .mapCard .lock { font-size: 40px; filter: none; }
 
   /* Editor de circuitos */
   #editor { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
@@ -243,7 +246,7 @@
     <label>Tu nombre <input id="name" maxlength="14" autocomplete="off" aria-label="Tu nombre"></label>
     <div class="swatches" id="colors" aria-label="Color de tu jet"></div>
     <div id="joinBox" hidden><button id="btnJoin" class="primary big">Unirse a la sala <b id="joinCode"></b></button></div>
-    <div class="courseRow"><span style="color:var(--muted);font-weight:700">Mapa</span><b id="mapName" style="flex:1"></b><button id="btnMaps">Cambiar de mapa</button></div>
+    <div class="courseRow"><span style="color:var(--muted);font-weight:700">Mapa</span><b id="mapName" style="flex:1"></b><button id="btnMaps">Niveles</button></div>
     <div class="courseRow"><span style="color:var(--muted);font-weight:700">Circuito</span><select id="courseMenu" aria-label="Circuito"></select></div>
     <button id="btnTrial" class="primary big">Contrarreloj · 3 vueltas</button>
     <div class="row">
@@ -364,8 +367,8 @@
 
 <div id="maps" class="overlay centered" hidden>
   <div class="panel" style="width:min(960px,100%)">
-    <h2>Mapas</h2>
-    <p class="hint" style="margin-top:0">Cada mapa guarda tu mejor tiempo, tu fantasma y tu medalla. Bate el oro… y luego el tiempo del autor.</p>
+    <h2>Niveles</h2>
+    <p class="hint" style="margin-top:0">Cada nivel es más difícil y más oscuro que el anterior. Saca el bronce en uno para abrir el siguiente. Cada nivel guarda tu mejor tiempo, tu fantasma y tu medalla.</p>
     <div id="mapCards" class="mapCards"></div>
     <div style="text-align:center"><button id="btnMapsBack" class="link">Volver</button></div>
   </div>
