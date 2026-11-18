@@ -217,3 +217,32 @@ export function diagramTexture({ size = 1024, paper = '#efe3c6', ink = 'rgba(60,
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+// Azulejos: baldosas cuadradas con motivo (círculos que se cruzan entre baldosas, rombo y pétalos) y llaga oscura
+export function azulejoTexture({ size = 512, n = 4, base = '#e9e1cf', ink = '#1f3f8f', accent = '#c08a2e', grout = '#2a2622', seed = 41 } = {}) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d'), R = rng(seed), t = size / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const x = i * t, y = j * t, k = 0.92 + R() * 0.12;
+    g.fillStyle = base; g.fillRect(x, y, t, t);
+    g.fillStyle = `rgba(0,0,0,${(1 - k) * 0.8 + 0.02})`; g.fillRect(x, y, t, t);
+    // cuartos de círculo en las esquinas (al juntarse forman círculos entre cuatro baldosas)
+    g.fillStyle = ink;
+    for (const [cx, cy, a0] of [[x, y, 0], [x + t, y, Math.PI / 2], [x + t, y + t, Math.PI], [x, y + t, -Math.PI / 2]]) { g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, t * 0.32, a0, a0 + Math.PI / 2); g.closePath(); g.fill(); }
+    // rombo y pétalos en el centro
+    g.fillStyle = accent; g.beginPath(); g.moveTo(x + t / 2, y + t * 0.18); g.lineTo(x + t * 0.82, y + t / 2); g.lineTo(x + t / 2, y + t * 0.82); g.lineTo(x + t * 0.18, y + t / 2); g.closePath(); g.fill();
+    g.fillStyle = ink; for (let p = 0; p < 4; p++) { const a = p * Math.PI / 2 + Math.PI / 4; g.beginPath(); g.ellipse(x + t / 2 + Math.cos(a) * t * 0.14, y + t / 2 + Math.sin(a) * t * 0.14, t * 0.1, t * 0.05, a, 0, Math.PI * 2); g.fill(); }
+    g.fillStyle = base; g.beginPath(); g.arc(x + t / 2, y + t / 2, t * 0.06, 0, Math.PI * 2); g.fill();
+    // brillo del esmalte y desconchones
+    g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(x + t * 0.08, y + t * 0.08, t * 0.4, t * 0.05);
+    if (R() < 0.25) { g.fillStyle = grout; g.beginPath(); g.arc(x + R() * t, y + R() * t, t * (0.03 + R() * 0.05), 0, 6.28); g.fill(); }
+  }
+  g.strokeStyle = grout; g.lineWidth = Math.max(2, size / 170);
+  for (let i = 0; i <= n; i++) { g.beginPath(); g.moveTo(i * t, 0); g.lineTo(i * t, size); g.moveTo(0, i * t); g.lineTo(size, i * t); g.stroke(); }
+  const tx = new THREE.CanvasTexture(c);
+  tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+  tx.anisotropy = 8;
+  tx.colorSpace = THREE.SRGBColorSpace;
+  return tx;
+}

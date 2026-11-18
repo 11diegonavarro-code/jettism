@@ -11,6 +11,8 @@ import collageDef from './collage.js';
 import * as collageView from './collage-view.js';
 import espiralDef from './espiral.js';
 import * as espiralView from './espiral-view.js';
+import tunelDef from './tunel.js';
+import * as tunelView from './tunel-view.js';
 
 const desierto = {
   ...DESIERTO, name: 'Desierto de los sueños', key: 'desierto3', laps: 1, start: 'platform', course: BASE_COURSE,
@@ -28,9 +30,11 @@ const collage = { ...collageDef, atmo: collageView.atmo, buildView: collageView.
 
 const espiral = { ...espiralDef, atmo: espiralView.atmo, buildView: espiralView.buildView, music: espiralView.MUSIC, cloudLayout: espiralView.CLOUDS };
 
+const tunel = { ...tunelDef, atmo: tunelView.atmo, buildView: tunelView.buildView, music: tunelView.MUSIC, cloudLayout: tunelView.CLOUDS };
+
 // Niveles: de la paleta más viva a la más oscura, y con ellos la dificultad, la música y la tensión de la cámara
 const LEVELS = ['collage', 'torres', 'desierto', 'espiral', 'tunel', 'laberinto', 'plano', 'nudos', 'campo', 'sombra'];
-const all = { collage, torres, desierto, espiral, laberinto, nudos };
+const all = { collage, torres, desierto, espiral, tunel, laberinto, nudos };
 export const MAPS = LEVELS.map((id, i) => all[id] && Object.assign(all[id], {
   tension: i / (LEVELS.length - 1),
   // el tempo sube con el nivel: de 82 a unos 150 pulsos por minuto
