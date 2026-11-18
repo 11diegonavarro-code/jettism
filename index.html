@@ -176,7 +176,7 @@
   .mapCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin: 12px 0; }
   .mapCard { display: flex; flex-direction: column; align-items: stretch; gap: 6px; text-align: left; padding: 10px; border-radius: 16px; }
   .mapCard.on { border-color: var(--cyan); box-shadow: 0 0 0 2px var(--cyan) inset; }
-  .mapCard .thumb { height: 130px; border-radius: 10px; background: linear-gradient(135deg, #3a3550, #1a1640) center / cover no-repeat; }
+  .mapCard .thumb { position: relative; height: 130px; border-radius: 10px; background: linear-gradient(135deg, #3a3550, #1a1640) center / cover no-repeat; }
   .mapCard b { font-size: 17px; }
   .mapCard small { color: var(--muted); font-weight: 600; font-size: 12.5px; line-height: 1.35; }
   .mapCard .mrow { font-size: 13px; font-weight: 800; }
@@ -184,6 +184,9 @@
   .mapCard.locked { opacity: .55; cursor: not-allowed; }
   .mapCard.locked .thumb { filter: grayscale(1) brightness(.6); display: grid; place-items: center; }
   .mapCard .lock { font-size: 40px; filter: none; }
+  .mapCard .practiceTag { position: absolute; top: 8px; left: 8px; background: #ffb02e; color: #1a1206; font-weight: 800; font-size: 12px; padding: 2px 8px; border-radius: 6px; }
+  .practiceRow { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: rgba(255,176,46,.1); cursor: pointer; font-size: 14px; }
+  .practiceRow input { margin-top: 3px; width: 18px; height: 18px; }
 
   /* Editor de circuitos */
   #editor { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
@@ -369,6 +372,7 @@
   <div class="panel" style="width:min(960px,100%)">
     <h2>Niveles</h2>
     <p class="hint" style="margin-top:0">Cada nivel es más difícil y más oscuro que el anterior. Saca el bronce en uno para abrir el siguiente. Cada nivel guarda tu mejor tiempo, tu fantasma y tu medalla.</p>
+    <label class="practiceRow"><input type="checkbox" id="practiceOn"> <span><b>Modo práctica:</b> todos los niveles abiertos para entrenar. Tus tiempos se guardan, pero para abrir niveles de verdad sigue haciendo falta el bronce en el anterior.</span></label>
     <div id="mapCards" class="mapCards"></div>
     <div style="text-align:center"><button id="btnMapsBack" class="link">Volver</button></div>
   </div>

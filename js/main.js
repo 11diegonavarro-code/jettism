@@ -72,12 +72,16 @@ const { scene, camera } = world;
 // Niveles: el primero siempre está abierto; cada uno se abre con el bronce del anterior (con ?debug o ?todos, todos abiertos)
 const unlockAll = DEBUG || params.has('todos');
 const bestOf = m => +store.get(`jt-${m.key}-total`, 0) || null;
-function unlocked(m) {
+// ganado: el anterior está ganado y tiene bronce (así los tiempos del modo práctica no se saltan niveles)
+function earned(m) {
   const i = MAPS.indexOf(m);
-  if (unlockAll || i <= 0) return true;
+  if (i <= 0) return true;
   const prev = MAPS[i - 1], b = bestOf(prev);
-  return !!b && b <= prev.medals.bronce;
+  return !!b && b <= prev.medals.bronce && earned(prev);
 }
+// Modo práctica: todos los niveles abiertos para entrenar; no cuenta para ir abriendo niveles
+const practice = () => store.get('jt-practice', '0') === '1';
+function unlocked(m) { return unlockAll || practice() || earned(m); }
 settings.map = mapById(store.get('jt-map', MAPS[0].id)).id;
 if (!unlocked(mapById(settings.map))) settings.map = [...MAPS].reverse().find(unlocked).id;
 const track = new Track(mapById(settings.map));
@@ -211,20 +215,27 @@ function withLoading(text, fn) {
   $('loading').textContent = text; $('loading').hidden = false;
   requestAnimationFrame(() => requestAnimationFrame(() => { try { fn(); } finally { $('loading').hidden = true; } }));
 }
+$('practiceOn').addEventListener('change', e => {
+  store.set('jt-practice', e.target.checked ? '1' : '0');
+  // al quitar la práctica, si el nivel elegido aún no está ganado, se vuelve al más alto abierto
+  if (!unlocked(track.map)) { const m = [...MAPS].reverse().find(unlocked); selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); return; }
+  openMaps();
+});
 function openMaps() {
   const box = $('mapCards');
   box.innerHTML = '';
   for (const m of MAPS) {
     const best = +store.get(`jt-${m.key}-total`, 0) || null, md = medalOf(m, best), b = document.createElement('button');
-    const open = unlocked(m), prev = MAPS[MAPS.indexOf(m) - 1];
+    const open = unlocked(m), prev = MAPS[MAPS.indexOf(m) - 1], trial = open && !earned(m);
     b.className = 'mapCard' + (m.id === track.map.id ? ' on' : '') + (open ? '' : ' locked');
     b.disabled = !open;
-    b.innerHTML = `<div class="thumb" style="background-image:url(img/mapas/${m.id}.jpg)">${open ? '' : '<span class="lock">🔒</span>'}</div><b>Nivel ${m.level} · ${esc(m.name)}</b><small>${open ? esc(m.blurb || '') : `Se abre con el bronce (${fmtTime(prev.medals.bronce)}) en «${esc(prev.name)}».`}</small>` +
+    b.innerHTML = `<div class="thumb" style="background-image:url(img/mapas/${m.id}.jpg)">${open ? (trial ? '<span class="practiceTag">Práctica</span>' : '') : '<span class="lock">🔒</span>'}</div><b>Nivel ${m.level} · ${esc(m.name)}</b><small>${open ? esc(m.blurb || '') : `Se abre con el bronce (${fmtTime(prev.medals.bronce)}) en «${esc(prev.name)}».`}</small>` +
       `<span class="mrow">${md ? `${md[1]} ${md[2]}` : 'Sin medalla'} · tu mejor: ${best ? fmtTime(best) : '—'}</span>` +
       `<span class="mrow dim">Contrarreloj de ${m.laps} ${m.laps === 1 ? 'vuelta' : 'vueltas'} · oro ${fmtTime(m.medals.oro)} · autor ${fmtTime(m.medals.autor)}</span>`;
     b.onclick = () => { selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); };
     box.appendChild(b);
   }
+  $('practiceOn').checked = practice();
   showOverlay('maps');
 }
 // Pone un circuito (o el original): puertas, anillos, objetos, récords; los jets que ya vuelan siguen con la carrera nueva
@@ -1081,10 +1092,10 @@ function onFinish(e) {
   }
   hud.center('¡META!', '', 2.4);
   const total = e.time, prevTotal = rec.total, newTotal = !rec.total || total < rec.total, newStyle = style.total > rec.style;
-  const nextLevel = track.custom ? null : MAPS[MAPS.indexOf(track.map) + 1], wasOpen = nextLevel && unlocked(nextLevel);
+  const nextLevel = track.custom ? null : MAPS[MAPS.indexOf(track.map) + 1], wasOpen = nextLevel && earned(nextLevel);
   if (newTotal) { rec.total = total; store.set(`jt-${MAP}-total`, total.toFixed(3)); store.set(`jt-${MAP}-splits`, JSON.stringify(run.splits)); publishRecord(total); }
   if (prevTotal && run.splits.length) showSplit(total - prevTotal);
-  if (nextLevel && !wasOpen && unlocked(nextLevel)) { setTimeout(() => { toast(`¡Nivel ${nextLevel.level} desbloqueado: ${nextLevel.name}!`); sound.sfx('record'); }, 1200); }
+  if (nextLevel && !wasOpen && earned(nextLevel)) { setTimeout(() => { toast(`¡Nivel ${nextLevel.level} desbloqueado: ${nextLevel.name}!`); sound.sfx('record'); }, 1200); }
   const md = track.custom ? null : medalOf(track.map, total), best = track.custom ? null : medalOf(track.map, rec.total);
   const nextM = track.custom ? null : [...MEDALS].reverse().find(([k]) => track.map.medals[k] < rec.total);
   const medalLine = track.custom ? '' : `<p style="text-align:center;font-weight:800">${md ? `${md[1]} Medalla de ${md[2].toLowerCase()}` : 'Sin medalla'}${nextM ? ` · siguiente: ${nextM[1]} ${fmtTime(track.map.medals[nextM[0]])} (te faltan ${(rec.total - track.map.medals[nextM[0]]).toFixed(3).replace('.', ',')} s)` : best ? ' · ¡tienes todas!' : ''}</p>`;
