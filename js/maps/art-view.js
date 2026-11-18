@@ -87,3 +87,7 @@ export function artLayer(cv, palette, o = {}) {
   }
   return { dispose() { for (const m of owned) m.dispose(); } };
 }
+
+// Para otros kits (esculturas del kit de arquitectura): una figura del kit y un material de pinceladas
+export const artGeometry = (kind, v) => geometries()[kind][v % 6];
+export function brushMaterial(rough = 0.5) { return new THREE.MeshStandardMaterial({ map: brushTexture(), roughness: rough }); }

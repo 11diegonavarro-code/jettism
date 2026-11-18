@@ -57,15 +57,19 @@ const rostro = { ...rostroDef, atmo: rostroView.atmo, buildView: rostroView.buil
 
 const ambar = { ...ambarDef, atmo: ambarView.atmo, buildView: ambarView.buildView, music: ambarView.MUSIC, cloudLayout: ambarView.CLOUDS };
 
-// 18 huecos: los que aún no están hechos se saltan (el número de nivel se cuenta solo con los hechos)
-const LEVELS = ['collage', 'jardin', 'torres', 'rostro', 'desierto', 'ambar', 'espiral', 'liquido', 'tunel', 'mar', 'laberinto', 'escaleras', 'plano', 'nudos', 'campo', 'ojos', 'luz', 'estelar'];
-// dificultad por tramos de tres huecos, como en los juegos de plataformas de ritmo; los Demonio: un choque y a empezar
-export const DIFFS = [['Fácil', '#58f0a0'], ['Normal', '#3ee8ff'], ['Difícil', '#f2b630'], ['Muy difícil', '#f97316'], ['Locura', '#ec4899'], ['Demonio', '#ff2a2a']];
+// Niveles de la contrarreloj: solo mapas cerrados y técnicos, de la paleta más viva a la más oscura (los que aún no
+// están hechos se saltan y el número de nivel se cuenta con los hechos). Los abiertos van aparte (ARENAS).
+const LEVELS = ['collage', 'jardin', 'torres', 'rostro', 'ambar', 'liquido', 'tunel', 'mar', 'laberinto', 'escaleras', 'plano', 'nudos', 'ojos', 'luz', 'estelar'];
+const ARENAS = ['desierto', 'espiral', 'campo'];
 const all = { collage, jardin, torres, rostro, desierto, ambar, espiral, tunel, laberinto, plano, nudos, campo, luz };
+// dificultad por tramos, como en los juegos de plataformas de ritmo; los Demonio: un choque y a empezar
+export const DIFFS = [['Fácil', '#58f0a0'], ['Normal', '#3ee8ff'], ['Difícil', '#f2b630'], ['Muy difícil', '#f97316'], ['Locura', '#ec4899'], ['Demonio', '#ff2a2a']];
+const N = LEVELS.length, tier = i => Math.min(DIFFS.length - 1, Math.floor((i * DIFFS.length) / N));
 export const MAPS = LEVELS.map((id, i) => all[id] && Object.assign(all[id], {
-  slot: i, tension: i / (LEVELS.length - 1), diff: Math.floor(i / 3), demon: Math.floor(i / 3) === DIFFS.length - 1,
-  // el tempo sube con el nivel: de 82 a unos 153 pulsos por minuto
-  // estilo según el tramo: synth de fondo (Fácil, Normal), synth con pulso (Difícil), techno (Muy difícil) y hard techno (Locura, Demonio)
-  music: { ...(all[id].music || {}), style: ['synthpad', 'synthpad', 'synthpulse', 'pulsetechno', 'hardtechno', 'hardtechno'][Math.floor(i / 3)], seed: i * 97 + 13, bpm: Math.round(82 + i * 4.2), tension: i / (LEVELS.length - 1) },
+  slot: i, tension: i / (N - 1), diff: tier(i), demon: tier(i) === DIFFS.length - 1,
+  // música según el tramo: synth de fondo (Fácil, Normal), synth con pulso (Difícil), techno (Muy difícil) y hard techno (Locura, Demonio)
+  music: { ...(all[id].music || {}), style: ['synthpad', 'synthpad', 'synthpulse', 'pulsetechno', 'hardtechno', 'hardtechno'][tier(i)], seed: i * 97 + 13, bpm: Math.round(82 + (i * 70) / (N - 1)), tension: i / (N - 1) },
 })).filter(Boolean).map((m, i) => Object.assign(m, { level: i + 1 })); // número de nivel según los mapas ya hechos
-export const mapById = id => MAPS.find(m => m.id === id) || MAPS[0];
+// Mapas abiertos: para vuelo libre, carreras y los modos (combate, aerobalón); fuera de la progresión
+export const ARENA_MAPS = ARENAS.map((id, i) => all[id] && Object.assign(all[id], { arena: true, level: null, diff: null, demon: false, tension: 0, music: { ...(all[id].music || {}), style: 'synthpad', seed: 500 + i * 31, bpm: 96, tension: 0 } })).filter(Boolean);
+export const mapById = id => MAPS.find(m => m.id === id) || ARENA_MAPS.find(m => m.id === id) || MAPS[0];

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { createWorld, QUALITY, SUN } from './world.js';
 import { Track } from './track.js';
-import { MAPS, mapById, DIFFS } from './maps/index.js';
+import { MAPS, ARENA_MAPS, mapById, DIFFS } from './maps/index.js';
 import { Race } from './race.js';
 import { encodeCourse, decodeCourse, courseId, CourseStore, cleanCourseName } from './course.js';
 import { Editor } from './editor.js';
@@ -50,7 +50,7 @@ const settings = {
   invert: store.get('jt-invert', '0') === '1',
   sens: +store.get('jt-sens', 1) || 1,
   volume: +store.get('jt-volume', 0.6),
-  music: +store.get('jt-music', 0.35),
+  music: +store.get('jt-music', 0.55),
   board: store.get('jt-board', '1') === '1',
   quality: QUALITY[savedQ] ? savedQ : 'alta',
   gyro: store.get('jt-gyro', '0') === '1',
@@ -251,6 +251,17 @@ function openMaps() {
       `<span class="mrow dim">Contrarreloj de ${m.laps} ${m.laps === 1 ? 'vuelta' : 'vueltas'} · oro ${fmtTime(m.medals.oro)} · autor ${fmtTime(m.medals.autor)}</span>`;
     b.onclick = () => { selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); };
     box.appendChild(b);
+  }
+  // mapas abiertos: siempre disponibles para vuelo libre, carreras y modos; fuera de la progresión
+  if (ARENA_MAPS.length) {
+    const h = document.createElement('h3'); h.className = 'arenaHead'; h.textContent = 'Mapas abiertos · para vuelo libre, carreras y modos'; box.appendChild(h);
+    for (const m of ARENA_MAPS) {
+      const best = +store.get(`jt-${m.key}-total`, 0) || null, b = document.createElement('button');
+      b.className = 'mapCard' + (m.id === track.map.id ? ' on' : '');
+      b.innerHTML = `<div class="thumb" style="background-image:url(img/mapas/${m.id}.jpg)"></div><b>${esc(m.name)}</b><small>${esc(m.blurb || '')}</small><span class="mrow dim">Mapa abierto · tu mejor: ${best ? fmtTime(best) : '—'}</span>`;
+      b.onclick = () => { selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); };
+      box.appendChild(b);
+    }
   }
   $('practiceOn').checked = practice();
   $('starsTotal').textContent = `${totalStars()} / ${maxStars()} ★`;
@@ -556,7 +567,7 @@ function renderLobby() {
   L.bots = Math.min(L.bots, maxBots);
   $('hostOpts').hidden = !hosting;
   if (hosting) {
-    $('mapSel').innerHTML = MAPS.filter(unlocked).map(m => `<option value="${m.id}">Nivel ${m.level} · ${esc(m.name)}</option>`).join('');
+    $('mapSel').innerHTML = MAPS.filter(unlocked).map(m => `<option value="${m.id}">Nivel ${m.level} · ${esc(m.name)}</option>`).join('') + ARENA_MAPS.map(m => `<option value="${m.id}">Abierto · ${esc(m.name)}</option>`).join('');
     $('mapSel').value = track.map.id;
     fillCourseSelect($('courseSel'), L.course || '');
   }

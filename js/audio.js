@@ -38,7 +38,7 @@ export class RemoteVoice {
     this.osc.frequency.setTargetAtTime(base * k, t, 0.05);
     this.osc2.frequency.setTargetAtTime((700 + speed * 4) * k, t, 0.05);
     this.filter.frequency.setTargetAtTime((boost ? 1800 : 1100) * k, t, 0.05);
-    this.gain.gain.setTargetAtTime(on ? (boost ? 0.55 : 0.38) : 0, t, 0.08);
+    this.gain.gain.setTargetAtTime(on ? (boost ? 0.26 : 0.17) : 0, t, 0.08);
     const P = this.panner;
     if (P.positionX) { P.positionX.value = src.p.x; P.positionY.value = src.p.y; P.positionZ.value = src.p.z; } else P.setPosition(src.p.x, src.p.y, src.p.z);
   }
@@ -80,10 +80,18 @@ export class Sound {
     this.turbine.connect(this.master);
     this.t1.start(); this.t2.start();
 
-    // Rugido del motor
-    this.roarF = ctx.createBiquadFilter(); this.roarF.type = 'lowpass'; this.roarF.frequency.value = 400;
+    // Motor de videojuego: dos osciladores desafinados y un subgrave por un filtro resonante que se abre con el gas
+    // (zumbido arcade en vez del rugido de ruido), con un vibrato suave para que no suene plano
+    this.roarF = ctx.createBiquadFilter(); this.roarF.type = 'lowpass'; this.roarF.frequency.value = 400; this.roarF.Q.value = 6;
     this.roar = ctx.createGain(); this.roar.gain.value = 0;
-    loop(brown).connect(this.roarF).connect(this.roar).connect(this.master);
+    this.e1 = ctx.createOscillator(); this.e1.type = 'sawtooth';
+    this.e2 = ctx.createOscillator(); this.e2.type = 'square'; this.e2.detune.value = 9;
+    this.sub = ctx.createOscillator(); this.sub.type = 'sine';
+    const e2g = ctx.createGain(), subg = ctx.createGain(); e2g.gain.value = 0.5; subg.gain.value = 0.9;
+    this.e1.connect(this.roarF); this.e2.connect(e2g).connect(this.roarF); this.sub.connect(subg).connect(this.roar);
+    this.roarF.connect(this.roar).connect(this.master);
+    const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 6; vg.gain.value = 7; vib.connect(vg); vg.connect(this.e1.detune); vg.connect(this.e2.detune);
+    for (const o of [this.e1, this.e2, this.sub, vib]) o.start();
 
     // Postcombustión: ruido grave con chisporroteo
     this.burnF = ctx.createBiquadFilter(); this.burnF.type = 'lowpass'; this.burnF.frequency.value = 700;
@@ -120,15 +128,18 @@ export class Sound {
     const E = this.eng, f = E.base + rpm * E.span;
     this.t1.frequency.setTargetAtTime(f, t, k);
     this.t2.frequency.setTargetAtTime(f * 1.505, t, k);
-    this.turbine.gain.setTargetAtTime(o * (0.025 + rpm * 0.03) * E.whine, t, k);
-    this.roarF.frequency.setTargetAtTime((260 + rpm * 900) * (E.roar > 1 ? 0.8 : 1), t, k);
-    this.roar.gain.setTargetAtTime(o * (0.18 + power * 0.32) * E.roar, t, k);
-    this.burn.gain.setTargetAtTime(o * (boost ? 0.32 : 0), t, 0.06);
-    this.burnF.frequency.setTargetAtTime(boost ? 900 + Math.random() * 500 : 500, t, 0.03);
-    this.rumbleG.gain.setTargetAtTime(o * (boost ? 0.35 : 0.04 + power * 0.06), t, 0.08);
+    // más bajo que antes: la música manda
+    this.turbine.gain.setTargetAtTime(o * (0.008 + rpm * 0.012) * E.whine, t, k);
+    const f0 = (55 + rpm * 85 + (boost ? 18 : 0)) * E.pitch;
+    this.e1.frequency.setTargetAtTime(f0, t, k); this.e2.frequency.setTargetAtTime(f0 * 2, t, k); this.sub.frequency.setTargetAtTime(f0 / 2, t, k);
+    this.roarF.frequency.setTargetAtTime((350 + rpm * 1700 + (boost ? 700 : 0)) * (E.roar > 1 ? 0.8 : 1), t, k);
+    this.roar.gain.setTargetAtTime(o * (0.035 + power * 0.045) * E.roar, t, k);
+    this.burn.gain.setTargetAtTime(o * (boost ? 0.08 : 0), t, 0.06);
+    this.burnF.frequency.setTargetAtTime(boost ? 1400 + Math.random() * 600 : 500, t, 0.03);
+    this.rumbleG.gain.setTargetAtTime(o * (boost ? 0.1 : 0.015 + power * 0.02), t, 0.08);
     const w = Math.min(1, speed / 160);
     this.windF.frequency.setTargetAtTime(300 + w * 1300 + slip * 600, t, 0.1);
-    this.wind.gain.setTargetAtTime(o * (w * w * 0.32 + slip * 0.18), t, 0.1);
+    this.wind.gain.setTargetAtTime(o * (w * w * 0.12 + slip * 0.08), t, 0.1);
   }
 
   silence() { this.engine({ on: false }); }
