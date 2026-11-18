@@ -17,6 +17,8 @@ import planoDef from './plano.js';
 import * as planoView from './plano-view.js';
 import campoDef from './campo.js';
 import * as campoView from './campo-view.js';
+import luzDef from './luz.js';
+import * as luzView from './luz-view.js';
 
 const desierto = {
   ...DESIERTO, name: 'Desierto de los sueños', key: 'desierto3', laps: 1, start: 'platform', course: BASE_COURSE,
@@ -40,9 +42,11 @@ const plano = { ...planoDef, atmo: planoView.atmo, buildView: planoView.buildVie
 
 const campo = { ...campoDef, atmo: campoView.atmo, buildView: campoView.buildView, music: campoView.MUSIC, cloudLayout: campoView.CLOUDS };
 
+const luz = { ...luzDef, atmo: luzView.atmo, buildView: luzView.buildView, music: luzView.MUSIC, cloudLayout: luzView.CLOUDS };
+
 // Niveles: de la paleta más viva a la más oscura, y con ellos la dificultad, la música y la tensión de la cámara
-const LEVELS = ['collage', 'torres', 'desierto', 'espiral', 'tunel', 'laberinto', 'plano', 'nudos', 'campo', 'sombra'];
-const all = { collage, torres, desierto, espiral, tunel, laberinto, plano, nudos, campo };
+const LEVELS = ['collage', 'torres', 'desierto', 'espiral', 'tunel', 'laberinto', 'plano', 'nudos', 'campo', 'luz'];
+const all = { collage, torres, desierto, espiral, tunel, laberinto, plano, nudos, campo, luz };
 export const MAPS = LEVELS.map((id, i) => all[id] && Object.assign(all[id], {
   tension: i / (LEVELS.length - 1),
   // el tempo sube con el nivel: de 82 a unos 150 pulsos por minuto

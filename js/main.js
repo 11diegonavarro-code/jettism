@@ -1095,6 +1095,9 @@ function onFinish(e) {
   const nextLevel = track.custom ? null : MAPS[MAPS.indexOf(track.map) + 1], wasOpen = nextLevel && earned(nextLevel);
   if (newTotal) { rec.total = total; store.set(`jt-${MAP}-total`, total.toFixed(3)); store.set(`jt-${MAP}-splits`, JSON.stringify(run.splits)); publishRecord(total); }
   if (prevTotal && run.splits.length) showSplit(total - prevTotal);
+  // el último nivel: aviso la primera vez que se saca el bronce (ganado de verdad, no en práctica)
+  const last = !track.custom && track.map === MAPS[MAPS.length - 1], bz = track.map.medals?.bronce;
+  if (last && earned(track.map) && total <= bz && !(prevTotal && prevTotal <= bz)) setTimeout(() => { toast(`¡Has superado los ${MAPS.length} niveles!`); sound.sfx('record'); }, 1200);
   if (nextLevel && !wasOpen && earned(nextLevel)) { setTimeout(() => { toast(`¡Nivel ${nextLevel.level} desbloqueado: ${nextLevel.name}!`); sound.sfx('record'); }, 1200); }
   const md = track.custom ? null : medalOf(track.map, total), best = track.custom ? null : medalOf(track.map, rec.total);
   const nextM = track.custom ? null : [...MEDALS].reverse().find(([k]) => track.map.medals[k] < rec.total);
