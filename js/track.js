@@ -232,7 +232,7 @@ export class Track {
   // groundY: altura del suelo (el de cada mapa; 0 por defecto)
 
 
-  update(t) { for (const m of this.movers) m.update(t); }
+  update(t) { this.time = t; for (const m of this.movers) m.update(t); }
 
   // Aceleración del viento en p (m/s²). Devuelve también si está en una térmica y si hay viento lateral.
   windAt(p, t, out) {
@@ -291,7 +291,8 @@ export class Track {
     return out.lenSq() > 1e-12 ? out.normalize() : out.set(0, 1, 0);
   }
 
-  groundY() { return this.map.groundY ?? 0; }
+  // altura del suelo en (x, z): plana (groundY) o con relieve que se mueve (groundAt, p. ej. las olas del Campo de líneas)
+  groundY(x, z) { return this.map.groundAt ? this.map.groundAt(x, z, this.time || 0) : this.map.groundY ?? 0; }
 
   // Rayo por «sphere tracing»: devuelve la distancia al primer choque (incluido el suelo).
   // margin = grosor del rayo (el radio del jet, o más para ir con holgura)
@@ -301,7 +302,7 @@ export class Track {
     for (let i = 0; i < 48 && t < maxD; i++) {
       p.copy(o).addScaled(dir, t);
       const { d, col } = this.nearest(p, 70);
-      const dg = p.y - this.groundY();
+      const dg = p.y - this.groundY(p.x, p.z);
       const dm = Math.min(d, dg);
       if (dm < margin) return { t, col: dg < d ? null : col, p: p.clone() };
       t += Math.max(dm - margin * 0.5, 1.5);
