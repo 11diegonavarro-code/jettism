@@ -9,6 +9,7 @@ import { opTexture, checkerTexture } from '../textures.js';
 import { triplanar } from '../materials.js';
 import { rng } from '../math.js';
 import { FACE } from './rostro.js';
+import { artLayer } from './art-view.js';
 
 const v3 = p => new THREE.Vector3(p.x, p.y, p.z);
 const PAL = ['#e8432f', '#ffcf3a', '#2f6fe0', '#21b573', '#ff6fb5', '#1a1a1a', '#f4f1ea', '#7a3cff', '#ff8a1a'];
@@ -101,7 +102,23 @@ export function buildView(cv) {
   const D = T.decor;
 
   // ---------- la cara ----------
-  { const W = F.x1 - F.x0, face = new THREE.Mesh(own(new THREE.PlaneGeometry(W, F.H)), mat(new THREE.MeshStandardMaterial({ map: t.face, transparent: false, alphaTest: 0.5, roughness: 0.55, side: THREE.DoubleSide }))); face.position.set((F.x0 + F.x1) / 2, F.H / 2, F.z + 0.5); face.receiveShadow = true; root.add(face); }
+  // la cara en relieve: cejas, pómulos, mentón, frente y cuencas de los ojos, más bultos de collage
+  {
+    const W = F.x1 - F.x0, g = new THREE.PlaneGeometry(W, F.H, 200, 240), pos = g.attributes.position, cx = (F.x0 + F.x1) / 2;
+    const bump = (x, y, bx, by, rx, ry, h) => h * Math.exp(-(((x - bx) / rx) ** 2) - (((y - by) / ry) ** 2));
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i) + cx, y = pos.getY(i) + F.H / 2;
+      let z = bump(x, y, 0, F.H * 0.88, 230, 120, 16) + bump(x, y, -150, 210, 70, 60, 14) + bump(x, y, 150, 210, 70, 60, 14) + bump(x, y, 0, 18, 110, 60, 18);
+      for (const e of F.eyes) { z += bump(x, y, e.x, e.y + 70, 90, 22, 12) - bump(x, y, e.x, e.y, 75, 65, 10); }
+      z += Math.sin(x * 0.09) * Math.sin(y * 0.07) * 2.2 + Math.sin(x * 0.031 + y * 0.02) * 3;
+      // los bordes de los agujeros quedan pegados a la máscara
+      const near = Math.min(...F.eyes.map(e => Math.hypot(x - e.x, y - e.y) - e.h), Math.max(Math.abs(x - F.mouth.x) - F.mouth.hw, Math.abs(y - F.mouth.y) - F.mouth.hh));
+      pos.setZ(i, Math.max(0, z) * Math.min(1, Math.max(0, near) / 25));
+    }
+    g.computeVertexNormals();
+    const face = new THREE.Mesh(own(g), mat(new THREE.MeshStandardMaterial({ map: t.face, alphaTest: 0.5, roughness: 0.6, side: THREE.DoubleSide })));
+    face.position.set(cx, F.H / 2, F.z + 0.5); face.castShadow = face.receiveShadow = true; root.add(face);
+  }
   mesh(mergeGeometries(D.filter(d => d.kind === 'mask').map(d => new THREE.BoxGeometry(d.h.x * 2, d.h.y * 2, d.h.z * 2 - 1.2).translate(d.c.x, d.c.y, d.c.z - 0.6))), patM[2]);
   mesh(mergeGeometries(D.filter(d => d.kind === 'tooth').map(d => new THREE.BoxGeometry(d.h.x * 2, d.h.y * 2, d.h.z * 2).translate(d.c.x, d.c.y, d.c.z))), white);
   for (const d of D.filter(x => x.kind === 'nose')) { const m = new THREE.Mesh(own(new THREE.SphereGeometry(1, 40, 28)), skin); m.position.copy(v3(d.c)); m.scale.set(d.r.x, d.r.y, d.r.z); m.castShadow = true; root.add(m); }
@@ -109,35 +126,10 @@ export function buildView(cv) {
   // iris: aro verde y dorado dentro de cada agujero del ojo
   for (const e of F.eyes) { const m = new THREE.Mesh(own(new THREE.TorusGeometry(e.h + 2, 4, 12, 64)), mat(new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.3 }))); m.position.set(e.x, e.y, F.z + 2); root.add(m); }
 
-  // ---------- el campo ----------
+  // ---------- el campo: el kit de formas irregulares con la paleta del collage ----------
+  const art = artLayer(cv, PAL.filter(c => c !== '#1a1a1a').concat(['#ff3b6f', '#00c2b8']), { rough: 0.5 });
   const sph = own(new THREE.SphereGeometry(1, 32, 20));
   const inst = (geo, m, list, set) => { if (!list.length) return null; const I = new THREE.InstancedMesh(geo, m, list.length); list.forEach((d, i) => { set(d); o.updateMatrix(); I.setMatrixAt(i, o.matrix); }); I.castShadow = I.receiveShadow = true; root.add(I); return I; };
-  for (let k = 0; k < 4; k++) {
-    inst(sph, patS[k], D.filter(d => (d.kind === 'hair' || d.kind === 'ball' || d.kind === 'far' || d.kind === 'planet') && d.tex === k), d => { o.position.copy(v3(d.c)); o.scale.setScalar(d.r); o.rotation.set(R() * 6, R() * 6, 0); });
-  }
-  // cubos isométricos: cada cara de un tono (colores por vértice)
-  const cubes = D.filter(d => d.kind === 'cube');
-  if (cubes.length) {
-    const tones = [['#ffcf3a', '#e8432f', '#7a1a10'], ['#69b4f2', '#2f6fe0', '#122a6a'], ['#f4f1ea', '#9a9a9a', '#1a1a1a']];
-    const list = cubes.map(d => {
-      const g = new THREE.BoxGeometry(d.h.x * 2, d.h.y * 2, d.h.z * 2).toNonIndexed(), n = g.attributes.normal, cols = [], tn = tones[d.tex];
-      for (let i = 0; i < n.count; i++) { const c = new THREE.Color(Math.abs(n.getY(i)) > 0.5 ? tn[0] : Math.abs(n.getX(i)) > 0.5 ? tn[1] : tn[2]); cols.push(c.r, c.g, c.b); }
-      g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-      return g.applyMatrix4(M4.compose(v3(d.c), Q.setFromAxisAngle(Y, d.yaw), one));
-    });
-    mesh(mergeGeometries(list), mat(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })));
-  }
-  // anillos de los planetas
-  const rings = D.filter(d => d.kind === 'planet').map(d => new THREE.RingGeometry(d.r * 1.25, d.r * d.ring, 48).rotateX(-Math.PI / 2).rotateZ(d.tilt).translate(d.c.x, d.c.y, d.c.z));
-  if (rings.length) { const m = mesh(mergeGeometries(rings), mat(new THREE.MeshStandardMaterial({ color: '#ffcf3a', roughness: 0.4, side: THREE.DoubleSide }))); m.castShadow = false; }
-  // engranajes: un disco con dientes
-  const gears = [];
-  for (const d of D.filter(x => x.kind === 'gear')) {
-    const parts = [new THREE.CylinderGeometry(d.r * 0.82, d.r * 0.82, d.r * 0.35, 32).toNonIndexed()];
-    for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; parts.push(new THREE.BoxGeometry(d.r * 0.3, d.r * 0.35, d.r * 0.3).toNonIndexed().translate(Math.cos(a) * d.r * 0.92, 0, Math.sin(a) * d.r * 0.92)); }
-    gears.push(mergeGeometries(parts).rotateX(Math.PI / 2).rotateY(d.yaw).translate(d.c.x, d.c.y, d.c.z));
-  }
-  if (gears.length) mesh(mergeGeometries(gears), mat(new THREE.MeshStandardMaterial({ color: '#c99b45', metalness: 0.8, roughness: 0.35 })));
   // setas de lunares y pilares de ajedrez
   const stems = [], pillars = [];
   for (const d of D) {
@@ -164,5 +156,5 @@ export function buildView(cv) {
       movers.push(() => { me.position.set(c.c.x, c.c.y, c.c.z); me.rotation.y += 0.01; });
     }
   }
-  return { update() { for (const f of movers) f(); }, dispose() { for (const m of owned) m.dispose(); for (const g of geos) g.dispose(); } };
+  return { update() { for (const f of movers) f(); }, dispose() { art.dispose(); for (const m of owned) m.dispose(); for (const g of geos) g.dispose(); } };
 }
