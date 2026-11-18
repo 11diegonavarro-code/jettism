@@ -21,6 +21,8 @@ import luzDef from './luz.js';
 import * as luzView from './luz-view.js';
 import jardinDef from './jardin.js';
 import * as jardinView from './jardin-view.js';
+import rostroDef from './rostro.js';
+import * as rostroView from './rostro-view.js';
 
 const desierto = {
   ...DESIERTO, name: 'Desierto de los sueños', key: 'desierto3', laps: 1, start: 'platform', course: BASE_COURSE,
@@ -49,11 +51,13 @@ const luz = { ...luzDef, atmo: luzView.atmo, buildView: luzView.buildView, music
 // Niveles: de la paleta más viva a la más oscura, y con ellos la dificultad, la música y la tensión de la cámara
 const jardin = { ...jardinDef, atmo: jardinView.atmo, buildView: jardinView.buildView, music: jardinView.MUSIC, cloudLayout: jardinView.CLOUDS };
 
+const rostro = { ...rostroDef, atmo: rostroView.atmo, buildView: rostroView.buildView, music: rostroView.MUSIC, cloudLayout: rostroView.CLOUDS };
+
 // 18 huecos: los que aún no están hechos se saltan (el número de nivel se cuenta solo con los hechos)
 const LEVELS = ['collage', 'jardin', 'torres', 'rostro', 'desierto', 'ambar', 'espiral', 'liquido', 'tunel', 'mar', 'laberinto', 'escaleras', 'plano', 'nudos', 'campo', 'ojos', 'luz', 'estelar'];
 // dificultad por tramos de tres huecos, como en los juegos de plataformas de ritmo; los Demonio: un choque y a empezar
 export const DIFFS = [['Fácil', '#58f0a0'], ['Normal', '#3ee8ff'], ['Difícil', '#f2b630'], ['Muy difícil', '#f97316'], ['Locura', '#ec4899'], ['Demonio', '#ff2a2a']];
-const all = { collage, jardin, torres, desierto, espiral, tunel, laberinto, plano, nudos, campo, luz };
+const all = { collage, jardin, torres, rostro, desierto, espiral, tunel, laberinto, plano, nudos, campo, luz };
 export const MAPS = LEVELS.map((id, i) => all[id] && Object.assign(all[id], {
   slot: i, tension: i / (LEVELS.length - 1), diff: Math.floor(i / 3), demon: Math.floor(i / 3) === DIFFS.length - 1,
   // el tempo sube con el nivel: de 82 a unos 153 pulsos por minuto
