@@ -6,6 +6,8 @@
 import { clamp } from '../math.js';
 import { kit, V3, yawFromRight } from './kit.js';
 import { AI_NARROW } from '../ai.js';
+import { buildCave, caveInside } from './cave.js';
+import { artKeep } from './art.js';
 
 const GATES = [
   [0, 140, 0, 'm'], [20, 150, -250, 'm'], [-60, 190, -500, 'm'], [-200, 230, -720, 'm'], [-80, 210, -950, 'm'],
@@ -13,9 +15,11 @@ const GATES = [
   [560, 110, 50, 'm'], [380, 170, 220, 'm'], [180, 160, 220, 'm'], [40, 145, 140, 'm'],
 ];
 export const COURSE = { name: 'Torres turquesa', gates: GATES, boosts: [[2, 0.55], [7, 0.55], [11, 0.4]] };
+// cueva de cada tramo: grutas de roca turquesa y rosa entre las torres; al aire libre en la pasarela blanca
+export const SECT = [[30, 'n'], [32, 'n'], [40, 'w'], [42, 'w'], [32, 'n'], [0, 'o'], [40, 'w'], [0, 'o'], [0, 'o'], [0, 'o'], [40, 'w'], [40, 'w'], [32, 'n'], [30, 'n']];
 export const SECTIONS = [[1, 'El túnel de la torre'], [3, 'Las pasarelas'], [7, 'La pasarela blanca'], [10, 'Las esferas'], [12, 'La última torre']];
 // holgura mínima con la línea por tipo de pieza
-const MIN = { tower: 11, bridge: 10, cant: 10, roof: 10, sphere: 16, walk: 10, pillar: 12, far: 60 };
+const MIN = { tower: 30, bridge: 24, cant: 24, roof: 24, sphere: 22, walk: 10, pillar: 12, far: 60, art: 10 };
 
 export function build(T) {
   const K = kit(T), { S, R, rr, sAt, at } = K, D = T.decor;
@@ -97,19 +101,23 @@ export function build(T) {
     const F = at(R() * S.length), sd = R() < 0.5 ? 1 : -1, l = rr(26, 140), r = rr(7, 26);
     K.sphere(new V3(F.P.x + F.Rh.x * sd * l, F.P.y + rr(-50, 140), F.P.z + F.Rh.z * sd * l), r, 'sphere');
   }
+  // la cueva: rocas turquesa y rosa y cristales apilados alrededor de la línea; dentro, esferas, cintas y caracolas
+  buildCave(K, T, SECT, { kinds: { rock: 9, shard: 2, drip: 1 }, perRing: 10, colors: 6 });
+  caveInside(K, T, SECT, { n: 380, kinds: { shard: 3, ribbon: 2, shell: 2, tendril: 2, knot: 1, petal: 1 }, size: [0.12, 0.3], colors: 6 });
   const extra = K.commit(MIN).kept;
-  for (const p of extra) D.push(p.c.type === 'sphere' ? { kind: 'sphere', c: p.c.c, r: p.c.r } : { kind: p.kind, c: p.c.c, h: p.c.h, yaw: p.c.yaw });
+  artKeep(extra, D);
+  for (const p of extra) if (p.kind !== 'art') D.push(p.c.type === 'sphere' ? { kind: 'sphere', c: p.c.c, r: p.c.r } : { kind: p.kind, c: p.c.c, h: p.c.h, yaw: p.c.yaw });
   // figuras diminutas en la pasarela blanca (como en el cuadro)
   for (const f of [0.3, 0.55, 0.85]) { const F = at(sAt(8, f)); D.push({ kind: 'figure', p: new V3(F.P.x + F.Rh.x * 3, 31, F.P.z + F.Rh.z * 3) }); }
 
   // ---------- obstáculos que se mueven ----------
   // esferas que orbitan cruzando la línea
-  [[5, 0.4, 1], [10, 0.55, -1], [11, 0.3, 1], [12, 0.6, -1]].forEach(([i, f, sd]) => {
-    const F = at(sAt(i, f)), C = new V3(F.P.x + F.Rh.x * sd * 28, F.P.y, F.P.z + F.Rh.z * sd * 28), Ro = 52, r = 12;
+  [[5, 0.4, 1], [10, 0.55, -1], [11, 0.4, 1]].forEach(([i, f, sd]) => {
+    const F = at(sAt(i, f)), C = new V3(F.P.x + F.Rh.x * sd * 10, F.P.y, F.P.z + F.Rh.z * sd * 10), Ro = 26, r = 9;
     const w = (2 * Math.PI) / rr(9, 12) * (R() < 0.5 ? 1 : -1), ph = R() * 6.28, col = T.tag({ type: 'sphere', c: C.clone(), r }, 'orb');
     const { Rh, Th } = F;
     T.mover({
-      kind: 'orb', cols: [col], C, Ro, r, bound: { c: C.clone(), r: Ro + r + 5 }, aiDodge: 'up', aiUp: 30,
+      kind: 'orb', cols: [col], C, Ro, r, bound: { c: C.clone(), r: Ro + r + 5 }, aiDodge: 'normal',
       update(t) { const a = w * t + ph; col.c.set(C.x + (Math.cos(a) * Rh.x + Math.sin(a) * Th.x) * Ro, C.y + Math.sin(a * 2) * 3, C.z + (Math.cos(a) * Rh.z + Math.sin(a) * Th.z) * Ro); },
     });
   });
@@ -137,5 +145,5 @@ export default {
   id: 'torres', name: 'Torres turquesa', key: 'torres1', laps: 1, start: 'air', seed: 23,
   blurb: 'Ciudad de torres turquesa sobre una bruma rosa: túneles que atraviesan torres, pasarelas, esferas que orbitan y una pasarela blanca abajo del todo.',
   course: COURSE, sections: SECTIONS, build, ai: AI_NARROW,
-  medals: { autor: 33.2, oro: 35, plata: 38.5, bronce: 43 },
+  medals: { autor: 37.6, oro: 39.5, plata: 43, bronce: 47.5 },
 };

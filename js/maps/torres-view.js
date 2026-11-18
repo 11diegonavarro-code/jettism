@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { noiseTexture } from '../textures.js';
 import { triplanar } from '../materials.js';
 import { rng } from '../math.js';
+import { artLayer } from './art-view.js';
 
 const v3 = p => new THREE.Vector3(p.x, p.y, p.z);
 let TEX = null;
@@ -157,8 +158,10 @@ export function buildView(cv) {
       movers.push(() => me.position.copy(v3(c.c)));
     }
   }
+  // las grutas y lo de dentro: turquesas, rosas, magenta y blanco
+  const art = artLayer(cv, ['#1d847e', '#2aae9f', '#63dcc4', '#c46aa2', '#e898c0', '#f4eef0'], { rough: 0.6 });
   return {
     update() { for (const f of movers) f(); },
-    dispose() { for (const m of owned) m.dispose(); },
+    dispose() { art.dispose(); for (const m of owned) m.dispose(); },
   };
 }

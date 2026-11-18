@@ -5,6 +5,8 @@
 // JS puro (también se simula en Node); lo que se dibuja está en rostro-view.js.
 import { kit, V3 } from './kit.js';
 import { artScatter, artKeep, artFar } from './art.js';
+import { buildCave, caveInside } from './cave.js';
+import { AI_NARROW } from '../ai.js';
 
 // la máscara: plano frontal en z = FACE.z, de x0 a x1 y de 0 a H; agujeros de la boca y de los ojos
 export const FACE = { z: -400, depth: 40, x0: -260, x1: 260, H: 640, mouth: { x: 0, y: 90, hw: 80, hh: 40 }, eyes: [{ x: -110, y: 340, h: 45 }, { x: 110, y: 340, h: 45 }] };
@@ -14,7 +16,9 @@ const GATES = [
 ];
 export const COURSE = { name: 'Rostro', gates: GATES, boosts: [[0, 0.5], [3, 0.5], [8, 0.5]] };
 export const SECTIONS = [[2, 'La boca'], [4, 'La nuca'], [6, 'El ojo'], [9, 'El collage']];
-const MIN = { art: 14, mush: 18, pillar: 18 };
+const MIN = { art: 14, mush: 60, pillar: 60, artOut: 70 };
+// cueva de cada tramo: se llega a la boca por una garganta; detrás de la cabeza, cavernas; la cara al aire libre
+export const SECT = [[30, 'n'], [32, 'n'], [0, 'o'], [42, 'w'], [42, 'w'], [0, 'o'], [0, 'o'], [32, 'n'], [42, 'w'], [42, 'w'], [32, 'n'], [30, 'n']];
 
 export function build(T) {
   const K = kit(T), { R, rr, sAt, at, L } = K, D = T.decor, F = FACE, zc = F.z - F.depth / 2;
@@ -42,14 +46,16 @@ export function build(T) {
   }
   D.push({ kind: 'lips', x: M.x, y: M.y, rx: M.hw + 14, ry: M.hh + 14, z: F.z + 8 });
   // ---------- el campo de collage: cientos de formas irregulares (kit de arte) ----------
-  artScatter(K, { n: 560, kinds: { blob: 3, ribbon: 2, tendril: 2, vase: 1, shard: 2, petal: 2, drip: 2, knot: 1, shell: 1, coral: 1 }, lat: [34, 330], up: [-70, 170], size: [7, 28], colors: 8 });
-  artScatter(K, { n: 260, kinds: { vase: 3, coral: 3, shard: 2, drip: 2, blob: 2, shell: 1 }, lat: [40, 460], size: [12, 46], ground: true, colors: 8 });
+  // la cueva de collage: rocas de colores con masas, gotas y corales; dentro, cintas, tentáculos, nudos y pétalos
+  buildCave(K, T, SECT, { kinds: { rock: 9, drip: 1, coral: 1, shell: 1 }, perRing: 10, colors: 8 });
+  caveInside(K, T, SECT, { n: 520, kinds: { ribbon: 2, tendril: 3, knot: 2, petal: 2, shard: 2, shell: 1, vase: 1 }, size: [0.12, 0.32], colors: 8 });
+  artScatter(K, { n: 200, kinds: { vase: 3, coral: 3, shard: 2, drip: 2, blob: 2, shell: 1 }, lat: [90, 460], size: [12, 46], ground: true, colors: 8, tag: 'artOut' });
   // setas de lunares y pilares de ajedrez, como remiendos
   for (let k = 0; k < 30; k++) { const Fr = at(R() * L), sd = R() < 0.5 ? -1 : 1, l = rr(40, 380), x = Fr.P.x + Fr.Rh.x * sd * l, z = Fr.P.z + Fr.Rh.z * sd * l, h = rr(14, 40); K.capsule(new V3(x, -2, z), new V3(x, h, z), rr(2.5, 5), 'mush', { cap: rr(8, 18), h, tex: Math.floor(R() * 4) }); }
   for (let k = 0; k < 16; k++) { const Fr = at(R() * L), sd = R() < 0.5 ? -1 : 1, l = rr(50, 380), x = Fr.P.x + Fr.Rh.x * sd * l, z = Fr.P.z + Fr.Rh.z * sd * l, H = rr(60, 200); K.capsule(new V3(x, -2, z), new V3(x, H, z), rr(6, 12), 'pillar', { H }); }
   const kept = K.commit(MIN).kept;
-  artKeep(kept, D);
-  for (const p of kept) { const c = p.c; if (p.kind !== 'art') D.push({ kind: p.kind, a: c.a, b: c.b, r: c.r, ...(p.extra || {}) }); }
+  artKeep(kept, D); artKeep(kept, D, 'artOut');
+  for (const p of kept) { const c = p.c; if (p.kind !== 'art' && p.kind !== 'artOut') D.push({ kind: p.kind, a: c.a, b: c.b, r: c.r, ...(p.extra || {}) }); }
   // pelo: tentáculos, caracolas y cintas enormes alrededor de la cabeza (sin colisionador: está lejos de la línea)
   for (let k = 0; k < 70; k++) {
     const a = rr(0.05, Math.PI - 0.05), r0 = rr(230, 330), art = ['tendril', 'shell', 'ribbon', 'petal', 'tendril'][k % 5];
@@ -66,15 +72,15 @@ export function build(T) {
   }
   // planetas con anillos que orbitan cruzando la línea
   [[1, 0.5, 1], [8, 0.5, -1], [10, 0.5, 1]].forEach(([i, f, sd], k) => {
-    const Fr = at(sAt(i, f)), C = new V3(Fr.P.x + Fr.Rh.x * sd * 26, Fr.P.y, Fr.P.z + Fr.Rh.z * sd * 26), Ro = 48, r = 11, w = ((2 * Math.PI) / (11 + k)) * (k % 2 ? -1 : 1), ph = k * 2;
+    const Fr = at(sAt(i, f)), C = new V3(Fr.P.x + Fr.Rh.x * sd * 8, Fr.P.y, Fr.P.z + Fr.Rh.z * sd * 8), Ro = 24, r = 9, w = ((2 * Math.PI) / (11 + k)) * (k % 2 ? -1 : 1), ph = k * 2;
     const col = T.tag({ type: 'sphere', c: C.clone(), r }, 'orb'), { Rh, Th } = Fr;
-    T.mover({ kind: 'orb', tex: k, cols: [col], bound: { c: C.clone(), r: Ro + r + 5 }, aiDodge: 'up', aiUp: 26, update(t) { const a = w * t + ph; col.c.set(C.x + (Math.cos(a) * Rh.x + Math.sin(a) * Th.x) * Ro, C.y, C.z + (Math.cos(a) * Rh.z + Math.sin(a) * Th.z) * Ro); } });
+    T.mover({ kind: 'orb', tex: k, cols: [col], bound: { c: C.clone(), r: Ro + r + 5 }, aiDodge: 'normal', update(t) { const a = w * t + ph; col.c.set(C.x + (Math.cos(a) * Rh.x + Math.sin(a) * Th.x) * Ro, C.y, C.z + (Math.cos(a) * Rh.z + Math.sin(a) * Th.z) * Ro); } });
   });
 }
 
 export default {
   id: 'rostro', name: 'Rostro', key: 'rostro1', laps: 1, start: 'air', seed: 97,
   blurb: 'Una cara enorme de collage maximalista: entras por la boca entre dientes que muerden, rodeas la cabeza y la atraviesas por un ojo. Alrededor, un campo de estampados.',
-  course: COURSE, sections: SECTIONS, build,
+  course: COURSE, sections: SECTIONS, build, sect: SECT, ai: AI_NARROW,
   medals: { autor: 31, oro: 33, plata: 36.5, bronce: 41 },
 };
