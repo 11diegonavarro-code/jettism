@@ -23,7 +23,8 @@ export function kit(T) {
     obb(c, h, ax, ay, az, kind, extra) { K.cand.push({ c: { type: 'obb', c, h, ax, ay, az }, kind, extra }); },
     // Añade a la pista las piezas que dejan pasar; devuelve las aceptadas. MIN: holgura mínima por tipo
     // cerca de la salida se pide 14 m más (ahí se forma la parrilla de la carrera, a los lados de la línea)
-    commit(MIN, step = 5) {
+    // noExtra: tipos a los que no se les pide la holgura extra de la salida (p. ej. la autopista que va por debajo de la línea)
+    commit(MIN, step = 5, noExtra = []) {
       const samples = [];
       for (let s = 0; s < L; s += step) { const q = S.pointAt(s); q.extra = s > L - 240 || s < 40 ? 14 : 0; samples.push(q); }
       const reach = c => (c.type === 'obb' || c.type === 'box' ? Math.hypot(c.h.x, c.h.y, c.h.z) : c.type === 'capsule' ? c.a.dist(c.b) / 2 + c.r : c.type === 'sphere' ? c.r : 60);
@@ -31,9 +32,9 @@ export function kit(T) {
       const kept = [];
       let dropped = 0;
       for (const p of K.cand) {
-        const min = MIN[p.kind] ?? 10, cc = center(p.c), r = reach(p.c) + min + 5;
+        const min = MIN[p.kind] ?? 10, cc = center(p.c), r = reach(p.c) + min + 5, nx = noExtra.includes(p.kind);
         let ok = true;
-        for (const q of samples) if (Math.abs(q.x - cc.x) < r + q.extra && Math.abs(q.z - cc.z) < r + q.extra && Math.abs(q.y - cc.y) < r + q.extra && sdf(p.c, q) < min + q.extra) { ok = false; break; }
+        for (const q of samples) { const ex = nx ? 0 : q.extra; if (Math.abs(q.x - cc.x) < r + ex && Math.abs(q.z - cc.z) < r + ex && Math.abs(q.y - cc.y) < r + ex && sdf(p.c, q) < min + ex) { ok = false; break; } }
         if (!ok) { dropped++; continue; }
         T.stat(p.c, p.kind);
         kept.push(p);

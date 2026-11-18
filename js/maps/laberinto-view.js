@@ -58,7 +58,7 @@ export function buildView(cv) {
 
   // ---------- piezas fijas unidas por zonas de 350 m (así se recortan bien fuera de cámara) ----------
   const chunks = new Map(), railGeos = [];
-  const add = (geo, x, z) => { const k = `${Math.floor(x / 350)},${Math.floor(z / 350)}`; if (!chunks.has(k)) chunks.set(k, []); chunks.get(k).push(geo); };
+  const add = (geo, x, z) => { const k = `${Math.floor(x / 200)},${Math.floor(z / 200)}`; if (!chunks.has(k)) chunks.set(k, []); chunks.get(k).push(geo); };
   const M = new THREE.Matrix4(), Qt = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
   const boxGeo = (c, h, yaw) => new THREE.BoxGeometry(h.x * 2, h.y * 2, h.z * 2).toNonIndexed().applyMatrix4(M.compose(v3(c), Qt.setFromAxisAngle(Y, yaw || 0), one));
   for (const d of T.decor) {

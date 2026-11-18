@@ -6,7 +6,7 @@ import { steerToward } from './flight.js';
 const _p = new V3();
 // Ajuste por mapa: en los abiertos mira lejos y esquiva fuerte; en los estrechos se fía más de la línea (ya comprobada libre)
 const OPEN = { look: [45, 125], k: 0.85, reach: 1.4, margin: 7, push: 45, mover: 55, back: 30 };
-export const AI_NARROW = { look: [40, 90], k: 0.7, reach: 0.8, margin: 4.2, push: 0, mover: 26, back: 12, flat: true };
+export const AI_NARROW = { look: [40, 90], k: 0.7, reach: 0.8, margin: 4.2, push: 0, mover: 26, back: 12, flat: true, trickMargin: 20 };
 
 export class Autopilot {
   // dir: 1 en el sentido normal del recorrido, −1 al revés. trickPool: piruetas que puede hacer
@@ -60,7 +60,8 @@ export class Autopilot {
     out.trick = null;
     if (this.tricks && !jet.trick) {
       this.trickCd -= dt;
-      if (this.trickCd <= 0 && straight && this.clear && jet.turbo < 75 && Math.random() < this.skill) {
+      // en los mapas estrechos, solo con sitio de sobra alrededor (un tonel desplaza de lado)
+      if (this.trickCd <= 0 && straight && this.clear && jet.turbo < 75 && Math.random() < this.skill && (!A.trickMargin || !T.raycast(jet.pos, jet.vel.clone().normalize(), jet.speed * 1.5, A.trickMargin))) {
         // las piruetas verticales solo con sitio de sobra
         let name = this.trickPool[Math.floor(Math.random() * this.trickPool.length)];
         if (['looping', 'immelmann', 'splitS', 'barrena', 'campana'].includes(name) && (jet.pos.y < 150 || this.blocked)) name = 'tonel';

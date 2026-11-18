@@ -5,6 +5,8 @@ import laberintoDef from './laberinto.js';
 import * as laberintoView from './laberinto-view.js';
 import torresDef from './torres.js';
 import * as torresView from './torres-view.js';
+import nudosDef from './nudos.js';
+import * as nudosView from './nudos-view.js';
 
 const desierto = {
   ...DESIERTO, name: 'Desierto de los sueños', key: 'desierto2', laps: 3, start: 'platform', course: BASE_COURSE,
@@ -16,5 +18,7 @@ const laberinto = { ...laberintoDef, atmo: laberintoView.atmo, buildView: laberi
 
 const torres = { ...torresDef, atmo: torresView.atmo, buildView: torresView.buildView, music: torresView.MUSIC, cloudLayout: torresView.CLOUDS };
 
-export const MAPS = [desierto, laberinto, torres];
+const nudos = { ...nudosDef, atmo: nudosView.atmo, buildView: nudosView.buildView, music: nudosView.MUSIC, cloudLayout: nudosView.CLOUDS };
+
+export const MAPS = [desierto, laberinto, torres, nudos];
 export const mapById = id => MAPS.find(m => m.id === id) || desierto;

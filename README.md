@@ -17,6 +17,7 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
   - **Desierto de los sueños:** surrealista, abierto, con contrarreloj de 3 vueltas.
   - **Laberinto de hormigón:** brutalista, estrecho y técnico, con contrarreloj de 1 vuelta. Arcos que atravesar, rampas curvas, escalinata gigante, sótano de pilares y pozo de luz. Pistones, compuertas y aspas giratorias.
   - **Torres turquesa:** una ciudad de torres brutalistas sobre una bruma rosa, con contrarreloj de 1 vuelta. Túneles que atraviesan torres, pasarelas por encima y por debajo, una pasarela blanca a ras de la bruma y planetas en el cielo. Esferas que orbitan, losas que salen de las fachadas y plataformas que suben y bajan.
+  - **Nudos de autopista:** hormigón gris bajo la lluvia, con contrarreloj de 1 vuelta. Tres bucles de autopista que se atraviesan por dentro, un nudo en hélice por el que se baja en espiral y un bosque de pilares bajo un tablero enorme. Hay tráfico de verdad (coches y camiones que chocan), pórticos de señales y farolas.
 - **Modo récords:** salida lanzada, reinicio instantáneo (Retroceso), parciales en cada puerta contra tu récord, medallas de bronce, plata, oro y autor, fantasma de tu mejor vuelta, retos a un amigo con un enlace que lleva tu fantasma, y una tabla mundial pública con el fantasma de cada piloto.
 - Vuelo arcade con derrape aéreo, turbo, roces y estampido sónico.
 - Diez piruetas, por combo (Espacio + dirección) o hechas a mano, con cadenas de estilo.

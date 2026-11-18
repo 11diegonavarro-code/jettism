@@ -53,7 +53,7 @@ export function buildView(cv) {
   const M = new THREE.Matrix4(), Qt = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
   const boxGeo = (c, h, yaw) => new THREE.BoxGeometry(h.x * 2, h.y * 2, h.z * 2).toNonIndexed().applyMatrix4(M.compose(v3(c), Qt.setFromAxisAngle(Y, yaw || 0), one));
   const groups = { teal: new Map(), white: new Map() };
-  const add = (g, k, x, z) => { const key = `${Math.floor(x / 400)},${Math.floor(z / 400)}`; if (!groups[k].has(key)) groups[k].set(key, []); groups[k].get(key).push(g); };
+  const add = (g, k, x, z) => { const key = `${Math.floor(x / 200)},${Math.floor(z / 200)}`; if (!groups[k].has(key)) groups[k].set(key, []); groups[k].get(key).push(g); };
   const local = (d, lx, ly, lz) => { const c = Math.cos(d.yaw), s = Math.sin(d.yaw); return new THREE.Vector3(d.c.x + lx * c + lz * s, d.c.y + ly, d.c.z - lx * s + lz * c); };
   for (const d of T.decor) {
     if (['tower', 'far', 'cant', 'roof', 'bridge'].includes(d.kind)) add(boxGeo(d.c, d.h, d.yaw), 'teal', d.c.x, d.c.z);
