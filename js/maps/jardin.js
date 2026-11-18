@@ -71,5 +71,5 @@ export default {
   id: 'jardin', name: 'Jardín de las delicias', key: 'jardin1', laps: 1, start: 'air', seed: 83,
   blurb: 'Un prado verde de pintura antigua: un estanque con una fuente rosa de pináculos, una cabalgata de criaturas que da vueltas, frutas gigantes y esferas de cristal.',
   course: COURSE, sections: SECTIONS, build,
-  medals: { autor: 29.4, oro: 31, plata: 34, bronce: 38 },
+  medals: { autor: 27.6, oro: 29.2, plata: 32, bronce: 36 },
 };
