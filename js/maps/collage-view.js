@@ -4,6 +4,9 @@
 import * as THREE from 'three';
 import { opTexture } from '../textures.js';
 import { rng } from '../math.js';
+import { shellLayer } from './shell-view.js';
+import { artLayer } from './art-view.js';
+import { triplanar } from '../materials.js';
 
 let TEX = null;
 const tex = () => TEX || (TEX = {
@@ -95,5 +98,22 @@ export function buildView(cv) {
     movers.push(() => me.position.set(c.c.x, c.c.y, c.c.z));
   }
   void Y;
-  return { update() { for (const f of movers) f(); }, dispose() { for (const m of owned) m.dispose(); } };
+  // ---------- el edificio: paredes arcoíris, suelo de cebra, techo de anillos, cristales y fachadas rojas ----------
+  const tri = (map, sc, extra = {}) => mat(triplanar(new THREE.MeshStandardMaterial({ map, roughness: 0.6, ...extra }), { scale: sc }));
+  const shell = shellLayer(cv, {
+    wall: tri(t.rainbow[1], 1 / 40), floor: tri(t.zebra[3], 1 / 30, { roughness: 0.35 }), ceil: tri(t.rings[0], 1 / 50), trim: mat(new THREE.MeshStandardMaterial({ color: '#e8261d', roughness: 0.4 })),
+    facade: tri(t.rainbow[0], 1 / 60), glass: mat(new THREE.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.2, depthWrite: false })),
+  });
+  // pilotes bajo los pasillos que van por el aire: pilas de discos de colores
+  const stilts = [];
+  for (const d of T.decor.filter(x => x.kind === 'seg' && x.s % 30 === 0)) {
+    const bottom = d.P.y - d.H - 6;
+    if (bottom < 4) continue;
+    for (const sd of [-1, 1]) { const x = d.P.x + d.Rh.x * sd * d.W * 0.8, z = d.P.z + d.Rh.z * sd * d.W * 0.8; for (let y = 2; y < bottom; y += 6) stilts.push({ x, y, z, r: 5 + (y % 12 ? 0 : 1), c: Math.floor(y / 6) % 3 }); }
+  }
+  const SI = inst(discGeo, discMat, stilts, (d, ob) => { ob.position.set(d.x, d.y, d.z); ob.rotation.set(0, 0, 0); ob.scale.set(d.r, 1, d.r); });
+  if (SI) { const cols = ['#e8261d', '#1f8a4c', '#f2c14e'].map(c => new THREE.Color(c)); stilts.forEach((d, i) => SI.setColorAt(i, cols[d.c])); }
+  // las formas del kit, con la paleta op-art
+  const art = artLayer(cv, ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00b3ff', '#7a3cff', '#ff2d95', '#f4f1ea', '#111111'], { rough: 0.5 });
+  return { update() { for (const f of movers) f(); }, dispose() { shell.dispose(); art.dispose(); for (const m of owned) m.dispose(); } };
 }

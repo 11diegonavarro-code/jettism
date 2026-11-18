@@ -2,21 +2,30 @@
 // de pináculos en el centro, una cabalgata de criaturas dando vueltas alrededor del estanque, frutas gigantes
 // (fresas, cerezas, uvas), esferas de cristal azul, y al fondo torres rosas y azules como rocas fantásticas.
 // (Idea tomada de un tríptico antiguo, de dominio público; aquí solo se usa la idea, todo está hecho de formas simples.)
-// Fácil y abierto. Obstáculos suaves: la cabalgata que gira (se pasa entre las criaturas) y fresas que suben y bajan.
+// Ahora se vuela casi todo por dentro: invernaderos de cristal, pabellones rosas con lucernarios y un pozo, llenos de
+// formas pintadas (kit de arte); el estanque queda al aire libre. Fácil. Obstáculos suaves: la cabalgata que gira (se pasa entre las criaturas) y fresas que suben y bajan.
 // JS puro (también se simula en Node); lo que se dibuja está en jardin-view.js.
 import { kit, V3 } from './kit.js';
+import { buildShell, artInside } from './shell.js';
+import { artScatter, artKeep, artFar } from './art.js';
+import { AI_NARROW } from '../ai.js';
 
 export const POND = { x: 400, z: -420, r: 130, ride: 175 };
 const GATES = [
   [0, 60, 0, 'l'], [40, 50, -260, 'l'], [200, 26, -440, 'l'], [400, 34, -330, 'l'], [600, 28, -430, 'l'], [760, 80, -300, 'l'],
   [840, 120, -60, 'l'], [700, 90, 180, 'l'], [460, 60, 260, 'l'], [220, 50, 260, 'l'], [80, 66, 230, 'l'], [0, 62, 130, 'l'],
 ];
+// tramos: invernaderos (pasillos de cristal), pabellones con lucernarios, un pozo, y el estanque al aire libre
+export const SECT = [[24, 16, 'c'], [30, 20, 'o'], [30, 20, 'o'], [30, 20, 'o'], [46, 30, 'h'], [30, 44, 'p'], [50, 34, 'h'], [24, 16, 'c'], [46, 30, 'h'], [24, 16, 'c'], [24, 16, 'c'], [30, 20, 'o']];
 export const COURSE = { name: 'Jardín de las delicias', gates: GATES, boosts: [[1, 0.5], [4, 0.5], [8, 0.5]] };
 export const SECTIONS = [[2, 'La cabalgata'], [3, 'El estanque'], [6, 'Las torres'], [8, 'Las frutas']];
-const MIN = { fruit: 22, globe: 20, spire: 24, tower: 40, tree: 18, far: 80 };
+const MIN = { fruit: 66, globe: 64, spire: 24, tower: 40, tree: 62, far: 80, art: 10, artOut: 64 };
 
 export function build(T) {
   const K = kit(T), { R, rr, sAt, at, L } = K, D = T.decor;
+  buildShell(T, SECT, { windowEvery: 2 });
+  artInside(K, T, SECT, { n: 760, kinds: { petal: 4, blob: 2, vase: 2, coral: 2, shell: 2, tendril: 2, drip: 1, ribbon: 2, knot: 1 }, size: [5, 18], colors: 9 });
+  artScatter(K, { n: 240, kinds: { vase: 2, coral: 2, petal: 2, blob: 2, shell: 1, tendril: 1 }, lat: [80, 420], size: [12, 38], ground: true, colors: 9, tag: 'artOut' });
   const near = (lat0, lat1) => { const F = at(R() * L), sd = R() < 0.5 ? -1 : 1, l = rr(lat0, lat1); return new V3(F.P.x + F.Rh.x * sd * l, 0, F.P.z + F.Rh.z * sd * l); };
 
   // la fuente rosa del estanque: un tronco con pináculos y una esfera azul arriba
@@ -42,8 +51,12 @@ export function build(T) {
   for (let k = 0; k < 60; k++) { const p = near(40, 380), h = rr(14, 30); K.capsule(new V3(p.x, -2, p.z), new V3(p.x, h, p.z), 1.6, 'tree', { crown: rr(7, 14), h }); }
   // a lo lejos, colinas azules
   for (let k = 0; k < 24; k++) { const a = (k / 24) * Math.PI * 2, d = rr(1700, 2500), r = rr(160, 320); K.sphere(new V3(380 + Math.cos(a) * d, -r * 0.4, -100 + Math.sin(a) * d), r, 'far'); }
-  for (const p of K.commit(MIN).kept) {
+  const kept = K.commit(MIN).kept;
+  artKeep(kept, D); artKeep(kept, D, 'artOut');
+  artFar(D, R, { n: 50, cx: 380, cz: -100, r: [1500, 2400], size: [100, 240], kinds: { blob: 1, vase: 1, coral: 1, petal: 1, shell: 1 }, colors: 9 });
+  for (const p of kept) {
     const c = p.c;
+    if (p.kind === 'art' || p.kind === 'artOut') continue;
     if (c.type === 'capsule') D.push({ kind: p.kind, a: c.a, b: c.b, r: c.r, ...(p.extra || {}) });
     else if (c.type === 'sphere') D.push({ kind: p.kind, c: c.c, r: c.r, ...(p.extra || {}) });
     else D.push({ kind: p.kind, c: c.c, rr: c.r, ...(p.extra || {}) });
@@ -61,15 +74,15 @@ export function build(T) {
     });
   }
   // fresas gigantes que suben y bajan sobre la línea
-  [[1, 0.6], [7, 0.5], [9, 0.5]].forEach(([i, f], k) => {
-    const F = at(sAt(i, f)), P = F.P, period = 8 + k, ph = k * 2, col = T.tag({ type: 'ellipsoid', c: P.clone(), r: new V3(13, 16, 13), yaw: 0 }, 'bob');
-    T.mover({ kind: 'bob', cols: [col], bound: { c: P.clone(), r: 60 }, aiDodge: 'normal', update(t) { col.c.y = P.y + 38 * Math.sin((2 * Math.PI * t) / period + ph); } });
+  [[1, 0.6, 30], [4, 0.5, 18], [8, 0.5, 18]].forEach(([i, f, amp], k) => {
+    const F = at(sAt(i, f)), P = F.P, period = 8 + k, ph = k * 2, col = T.tag({ type: 'ellipsoid', c: P.clone(), r: new V3(11, 13, 11), yaw: 0 }, 'bob');
+    T.mover({ kind: 'bob', cols: [col], bound: { c: P.clone(), r: 60 }, aiDodge: 'normal', update(t) { col.c.y = P.y + amp * Math.sin((2 * Math.PI * t) / period + ph); } });
   });
 }
 
 export default {
   id: 'jardin', name: 'Jardín de las delicias', key: 'jardin1', laps: 1, start: 'air', seed: 83,
   blurb: 'Un prado verde de pintura antigua: un estanque con una fuente rosa de pináculos, una cabalgata de criaturas que da vueltas, frutas gigantes y esferas de cristal.',
-  course: COURSE, sections: SECTIONS, build,
+  course: COURSE, sections: SECTIONS, build, sect: SECT, ai: AI_NARROW,
   medals: { autor: 27.6, oro: 29.2, plata: 32, bronce: 36 },
 };

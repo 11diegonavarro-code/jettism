@@ -11,6 +11,11 @@ const mask = s => [...s].map(c => c === X); // 16 pasos: x suena, . no
 // pad, arp (instrumento del arpegio), lead (melodía), bass y kit (batería). arpPat: orden de las notas del acorde.
 // arpRhythm / leadRhythm / bassRhythm: en qué semicorcheas suenan. oct: octavas extra. swing: retraso de las corcheas pares.
 export const STYLES = {
+  // progresión pedida por Diego: synth de fondo al principio; el teclado se va y entra el techno, hasta hard techno
+  synthpad: { pad: 'saw', arp: 'pluck', lead: null, bass: 'sub', kit: 'soft', arpRhythm: 'x...x...x...x...', bassRhythm: 'x.......x.......', arpPat: [0, 2, 3, 4, 2, 3, 1, 4] },
+  synthpulse: { pad: 'saw', arp: 'pluck', lead: null, bass: 'synth', kit: 'house', arpRhythm: 'x.......x.......', bassRhythm: 'x.x.x.x.x.x.x.x.', arpPat: [0, 2, 4, 3] },
+  pulsetechno: { pad: 'saw', arp: 'none', lead: null, bass: 'rumble', kit: 'techno', arpRhythm: '................', bassRhythm: '..x...x...x...x.', arpPat: [0] },
+  hardtechno: { pad: 'drone', arp: 'none', lead: null, bass: 'rumble', kit: 'hard', arpRhythm: '................', bassRhythm: '..x...x...x...x.', arpPat: [0], acid: true },
   dream: { pad: 'saw', arp: 'pluck', lead: null, bass: 'sub', kit: 'pop', arpRhythm: 'x.x.x.x.x.x.x.x.', bassRhythm: 'x.x.x.x.x.x.x.x.', arpPat: [0, 2, 3, 4, 2, 3, 1, 4] },
   tropical: { pad: 'glass', arp: 'marimba', lead: 'marimba', bass: 'pluckbass', kit: 'latin', arpRhythm: 'x..x..x.x..x..x.', leadRhythm: 'x.....x...x.....', bassRhythm: 'x..x....x..x....', arpPat: [0, 2, 4, 3, 1, 3, 2, 4], leadOct: 2 },
   pastoral: { pad: 'strings', arp: 'harp', lead: 'flute', bass: 'sub', kit: 'soft', arpRhythm: 'xxxxxxxxxxxxxxxx', leadRhythm: 'x.......x...x...', bassRhythm: 'x.......x.......', arpPat: [0, 1, 2, 3, 4, 3, 2, 1], leadOct: 1 },
@@ -106,6 +111,7 @@ export class Music {
       if (st.stab) this.stab(chord, t, st.arp);
       else this.voice(st.arp, chord[idx % chord.length] + 12 + (st.phrygian && s % 7 === 3 ? 1 : 0), t, 0.08);
     }
+    if (st.acid && race && this.motif[(s + bar * 5) % 32] >= 2 && s % 2) this.bassVoice('acid', chord[Math.abs(this.motif[(s + bar * 5) % 32]) % chord.length] - 12 + (s % 4 === 3 ? 12 : 0), t, D * 0.9, 0.12);
     // melodía: el motivo de la semilla sobre el acorde (en carrera, entera; en el menú, la mitad)
     if (st.lead && this.masks.lead[s] && (race || bar % 2 === 0)) {
       const m = this.motif[(s + (bar % 2) * 16) % 32];
@@ -114,15 +120,15 @@ export class Music {
     // batería (solo en carrera; algunas, suave en el menú)
     if (race || st.kit === 'heart' || st.kit === 'click') this.drums(st.kit, s, bar, t);
     // capas de tensión encima de todo
-    if (race && k > 0.55 && s % 4 === 0 && st.kit !== 'techno') this.kick(t, 0.35);
+    if (race && k > 0.55 && s % 4 === 0 && st.kit !== 'techno' && st.kit !== 'hard') this.kick(t, 0.35);
     if (race && k > 0.7 && s % 2 === 0) this.hat(t, 0.02);
-    if (k > 0.85 && (s === 0 || s === 3)) this.kick(t + 0.001, 0.45);
+    if (k > 0.85 && s === 3 && st.kit !== 'hard') this.kick(t + 0.001, 0.45);
     if (k > 0.35 && s === 0) this.bassVoice('sub', chord[0] - 24, t, D * 16, 0.06 + k * 0.08);
     if (k > 0.7 && s === 6 && bar % 2) this.voice('pluck', chord[0] + 13, t, 0.04 + k * 0.04);
   }
 
   // ---------- instrumentos ----------
-  env(g, t, a, peak, d) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + d); }
+  env(g, t, a, peak, d) { g.gain.value = 0; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + d); }
   osc(type, f, t, stop, dest) { const o = this.ctx.createOscillator(); o.type = type; o.frequency.value = f; o.connect(dest); o.start(t); o.stop(stop); return o; }
   // modulación de frecuencia: portadora + moduladora (campanas, piano eléctrico, clave)
   fm(f, t, ratio, index, decay, vol, dest, a = 0.004) {
@@ -162,6 +168,7 @@ export class Music {
       if (kind === 'organ' || kind === 'darkorgan') { for (const [m, v] of [[1, 1], [2, 0.5], [3, 0.25], [kind === 'darkorgan' ? 0.5 : 4, 0.3]]) { const og = ctx.createGain(); og.gain.value = v; og.connect(g); this.osc('sine', hz(n) * m, t, t + dur + 0.9, og); } shape(g, 0.3, 0.03); }
       else if (kind === 'strings' || kind === 'tremolo') { for (const det of [-9, 0, 9]) { const o = this.osc('sawtooth', hz(n), t, t + dur + 0.9, g); o.detune.value = det; } if (kind === 'tremolo') { const l = ctx.createOscillator(), lg = ctx.createGain(); l.frequency.value = 7; lg.gain.value = 0.012; l.connect(lg).connect(g.gain); l.start(t); l.stop(t + dur + 0.9); } shape(g, 2.2, 0.02); }
       else if (kind === 'choir') { const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 2; bp.connect(g); for (const det of [-6, 6]) { const o = this.osc('triangle', hz(n), t, t + dur + 0.9, bp); o.detune.value = det; } shape(g, 1.8, 0.07); }
+      else if (kind === 'drone') { if (n !== chord[1]) { g.disconnect(); continue; } const lp = ctx.createBiquadFilter(); lp.frequency.value = 400; lp.connect(g); for (const det of [-12, 0, 12]) { const o = this.osc('sawtooth', hz(n - 24), t, t + dur + 0.9, lp); o.detune.value = det; } shape(g, 2.5, 0.05); }
       else if (kind === 'glass') { this.osc('sine', hz(n + 12), t, t + dur + 0.9, g); this.osc('sine', hz(n + 24) * 1.002, t, t + dur + 0.9, g); shape(g, 1.2, 0.018); }
       else { for (const det of [-7, 7]) { const o = this.osc('sawtooth', hz(n), t, t + dur + 0.9, g); o.detune.value = det; } shape(g, 1.6, 0.032); }
     }
@@ -174,6 +181,11 @@ export class Music {
       this.osc('sawtooth', f, t, t + dur + 0.05, lp);
       if (kind === 'reese') { const o = this.osc('sawtooth', f, t, t + dur + 0.05, lp); o.detune.value = 18; }
       this.env(g, t, 0.01, vol * 0.8, dur);
+    } else if (kind === 'rumble') {
+      const ws = ctx.createWaveShaper(), lp = ctx.createBiquadFilter(); ws.curve = this.dist || (this.dist = (() => { const c = new Float32Array(257); for (let i = 0; i < 257; i++) { const x = i / 128 - 1; c[i] = Math.tanh(x * 4); } return c; })());
+      lp.type = 'lowpass'; lp.frequency.value = 160; ws.connect(lp).connect(g);
+      this.osc('sine', f, t, t + dur + 0.05, ws); this.osc('triangle', f * 0.5, t, t + dur + 0.05, ws);
+      this.env(g, t, 0.01, vol * 0.4, dur);
     } else if (kind === 'pluckbass') { this.osc('triangle', f, t, t + 0.4, g); this.osc('square', f, t, t + 0.12, g); this.env(g, t, 0.004, vol * 0.9, Math.min(dur, 0.35)); }
     else { this.osc('sine', f, t, t + dur + 0.05, g); this.osc('triangle', f, t, t + dur + 0.05, g); this.env(g, t, 0.015, vol * 0.8, dur); }
   }
@@ -193,6 +205,7 @@ export class Music {
       case 'glitch': if ((s * 7 + bar * 3) % 5 === 0) this.kick(t, 0.4); if ((s * 5 + bar) % 7 === 3) this.noiseHit(t, 0.1, 'bandpass', 2000 + (s * 400) % 5000, 0.05); if (s % 3 === 0) this.hat(t, 0.03); break;
       case 'dnb': if (s === 0 || s === 10) this.kick(t, 0.5); if (back) this.snare(t); for (const h of [0, 0.5]) if (s % 2 === 0) this.hat(t + h * this.dur, 0.025); break;
       case 'trap': if (s === 0 || s === 11) this.kick808(t); if (s === 8) this.clap(t); this.hat(t, s % 4 === 0 ? 0.04 : 0.02); if (s >= 12 && bar % 2) this.hat(t + this.dur / 2, 0.02); break;
+      case 'hard': if (four) this.hardKick(t); if (s % 4 === 2) this.noiseHit(t, 0.09, 'highpass', 6000, 0.14); if (s % 2 === 1) this.hat(t, 0.025); if (back) this.noiseHit(t, 0.1, 'bandpass', 2600, 0.12, 6); if (bar % 4 === 3 && s >= 12) this.noiseHit(t, 0.07, 'bandpass', 1800 + s * 200, 0.06, 4); break;
       case 'heart': if (s === 0 || s === 3) this.kick(t, 0.3); break;
       case 'click': if (s % 2 === 0) this.blip(t, 6000, 0.02); if (s === 0) this.kick(t, 0.35); break;
       case 'taiko': if (s === 0 || s === 3 || s === 8 || s === 11 || s === 14) this.tom(t, s % 8 === 0 ? 60 : 85); if (back) this.snare(t); break;
@@ -200,6 +213,13 @@ export class Music {
     }
   }
   kick(t, vol = 0.5) { const ctx = this.ctx, g = ctx.createGain(), o = this.osc('sine', 140, t, t + 0.3, g); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14); g.connect(this.out); this.env(g, t, 0.003, vol, 0.28); }
+  // bombo de hard techno: golpe largo y saturado
+  hardKick(t) {
+    const ctx = this.ctx, g = ctx.createGain(), ws = ctx.createWaveShaper();
+    ws.curve = this.hard || (this.hard = (() => { const c = new Float32Array(257); for (let i = 0; i < 257; i++) { const x = i / 128 - 1; c[i] = Math.tanh(x * 9); } return c; })());
+    const o = this.osc('sine', 180, t, t + 0.45, ws); o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(46, t + 0.09);
+    ws.connect(g).connect(this.out); this.env(g, t, 0.002, 0.32, 0.36);
+  }
   kick808(t) { const ctx = this.ctx, g = ctx.createGain(), o = this.osc('sine', 120, t, t + 0.9, g); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.2); g.connect(this.out); this.env(g, t, 0.003, 0.55, 0.85); }
   tom(t, f) { const ctx = this.ctx, g = ctx.createGain(), o = this.osc('sine', f * 1.6, t, t + 0.5, g); o.frequency.exponentialRampToValueAtTime(f, t + 0.12); g.connect(this.out); this.env(g, t, 0.003, 0.45, 0.45); this.noiseHit(t, 0.05, 'lowpass', 800, 0.1); }
   blip(t, f, vol) { const g = this.ctx.createGain(); g.connect(this.out); this.osc('sine', f, t, t + 0.08, g); this.env(g, t, 0.002, vol, 0.07); }

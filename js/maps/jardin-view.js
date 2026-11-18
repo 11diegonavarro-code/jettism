@@ -7,6 +7,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { noiseTexture } from '../textures.js';
 import { triplanar } from '../materials.js';
 import { rng } from '../math.js';
+import { shellLayer } from './shell-view.js';
+import { artLayer } from './art-view.js';
 
 const v3 = p => new THREE.Vector3(p.x, p.y, p.z);
 function seedsTexture() {
@@ -118,5 +120,15 @@ export function buildView(cv) {
       movers.push(() => me.position.set(c.c.x, c.c.y, c.c.z));
     }
   }
-  return { update() { for (const f of movers) f(); }, dispose() { for (const m of owned) m.dispose(); for (const g of geos) g.dispose(); } };
+  // ---------- invernaderos y pabellones: paredes rosas pintadas, suelo de mosaico azul, techo crema y mucho cristal ----------
+  const shell = shellLayer(cv, {
+    wall: pink, floor: blue, ceil: mat(new THREE.MeshStandardMaterial({ color: '#f6efe0', roughness: 0.8 })), trim: leaf,
+    facade: pink, glass: mat(new THREE.MeshStandardMaterial({ color: '#d8f0ff', transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.1, depthWrite: false })),
+  });
+  // pilotes rosas bajo los tramos que van por el aire
+  const st = [];
+  for (const d of D.filter(x => x.kind === 'seg' && x.s % 40 === 0)) { const bottom = d.P.y - d.H - 6; if (bottom < 4) continue; for (const sd of [-1, 1]) st.push(new THREE.CylinderGeometry(3.5, 5, bottom, 12).toNonIndexed().translate(d.P.x + d.Rh.x * sd * d.W * 0.8, bottom / 2, d.P.z + d.Rh.z * sd * d.W * 0.8)); }
+  if (st.length) mesh(mergeGeometries(st), pink);
+  const art = artLayer(cv, ['#e48aa6', '#f2b2c4', '#5e93d6', '#9cc4ef', '#7fae4a', '#3f7a2c', '#e8343a', '#f6efe0', '#c9a0dc'], { rough: 0.5 });
+  return { update() { for (const f of movers) f(); }, dispose() { shell.dispose(); art.dispose(); for (const m of owned) m.dispose(); for (const g of geos) g.dispose(); } };
 }
