@@ -238,10 +238,10 @@ export function createWorld(renderer, qualityName) {
     composer.addPass(new OutputPass());
     if (!Q.msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
     finalPass = new ShaderPass({
-      uniforms: { uChroma: { value: 0 }, uPulse: { value: 0 }, uGrainAdd: { value: 0 }, uSat: { value: 1.12 }, uContrast: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGrain: { value: 0 }, uKeepRed: { value: 0 }, uVigMin: { value: 0.74 }, uGT: { value: 0 },
+      uniforms: { uComic: { value: 0 }, uSpeed: { value: 0 }, uImpact: { value: 0 }, uChroma: { value: 0 }, uPulse: { value: 0 }, uGrainAdd: { value: 0 }, uSat: { value: 1.12 }, uContrast: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGrain: { value: 0 }, uKeepRed: { value: 0 }, uVigMin: { value: 0.74 }, uGT: { value: 0 },
         tDiffuse: { value: null }, uBlur: { value: 0 }, uHeatA: { value: new THREE.Vector4() }, uHeatB: { value: new THREE.Vector4() }, uHeatW: { value: new THREE.Vector2() }, uTime: { value: 0 }, uAspect: { value: 1 } },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; uniform float uSat, uContrast, uGrain, uKeepRed, uVigMin, uGT, uChroma, uPulse, uGrainAdd; uniform vec3 uTint; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; uniform float uSat, uContrast, uGrain, uKeepRed, uVigMin, uGT, uChroma, uPulse, uGrainAdd, uComic, uSpeed, uImpact; uniform vec3 uTint; varying vec2 vUv;
         float gHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
         // distorsión de calor: un cono que sale de cada tobera, ondulando, más ancho y más flojo cuanto más lejos
         vec2 heat(vec2 uv, vec4 seg) {
@@ -276,6 +276,31 @@ export function createWorld(renderer, qualityName) {
           col.rgb *= uTint;
           if (uGrain + uGrainAdd > 0.0) col.rgb += (gHash(gl_FragCoord.xy + fract(uGT * 7.13) * 917.0) - 0.5) * (uGrain + uGrainAdd);
           col.rgb *= mix(max(0.0, uVigMin - uPulse), 1.0, smoothstep(0.85, 0.28 - uPulse * 0.25, length(c * vec2(1.0, 0.82))));
+          // ---- estilo cómic y anime (niveles más difíciles) ----
+          if (uComic > 0.0) {
+            float r = length(c * vec2(uAspect, 1.0)), edge = smoothstep(0.32, 0.95, r);
+            // trama de puntos en los bordes, como la tinta de un cómic impreso
+            vec2 g = gl_FragCoord.xy * 0.7071; g = vec2(g.x - g.y, g.x + g.y) / 5.0;
+            float lum = dot(col.rgb, vec3(0.3, 0.59, 0.11)), dotR = (1.0 - lum) * 0.62 * edge * uComic;
+            float dt = 1.0 - smoothstep(dotR - 0.08, dotR, length(fract(g) - 0.5));
+            col.rgb = mix(col.rgb, col.rgb * 0.12, dt * uComic * 0.9);
+            // líneas de velocidad de anime: rayas que salen del centro, cambian varias veces por segundo
+            float a = atan(c.y, c.x), seed = floor(uGT * 14.0);
+            float ray = gHash(vec2(floor(a * 120.0), seed));
+            float lineK = step(0.82, ray) * smoothstep(0.28 + (1.0 - uSpeed) * 0.5, 0.9, r) * uSpeed * uComic;
+            col.rgb = mix(col.rgb, vec3(1.0), lineK * 0.75);
+            // marco de viñeta: borde blanco de papel y línea de tinta, con los bordes un poco inclinados
+            vec2 u = vUv;
+            float bx = min(u.x - (0.012 + 0.012 * u.y), 1.0 - u.x - (0.012 + 0.010 * (1.0 - u.y)));
+            float by = min(u.y - (0.016 + 0.014 * u.x), 1.0 - u.y - (0.016 + 0.012 * (1.0 - u.x)));
+            float b = min(bx, by * 1.0);
+            float paper = 1.0 - step(0.0, b), ink = step(0.0, b) * (1.0 - step(0.006, b));
+            float fr = min(1.0, uComic * 2.5);
+            col.rgb = mix(col.rgb, vec3(0.96, 0.93, 0.86), paper * fr);
+            col.rgb = mix(col.rgb, vec3(0.03), ink * fr);
+          }
+          // fotograma de impacto (al chocar): blanco y negro de golpe, invertido
+          if (uImpact > 0.0) { float lum2 = dot(col.rgb, vec3(0.3, 0.59, 0.11)); col.rgb = mix(col.rgb, vec3(1.0 - step(0.42, lum2)), uImpact); }
           gl_FragColor = col;
         }`,
     });
@@ -300,6 +325,8 @@ export function createWorld(renderer, qualityName) {
     setPixelRatio(pr) { renderer.setPixelRatio(pr); resize(); },
     // Efectos de tensión: chroma (separación de colores), pulse (la viñeta se cierra), grain (grano extra)
     setTension(chroma, pulse, grain) { if (!finalPass) return; const U = finalPass.uniforms; U.uChroma.value = chroma; U.uPulse.value = pulse; U.uGrainAdd.value = grain; },
+    // cómic y anime: k (0 a 1) según la dificultad, speed (0 a 1) para las líneas de velocidad, impact (0 a 1) al chocar
+    setComic(k, speed, impact) { if (!finalPass) return; const U = finalPass.uniforms; U.uComic.value = k; U.uSpeed.value = speed; U.uImpact.value = impact; },
     setBlur(k) { if (finalPass && Q.blur) finalPass.uniforms.uBlur.value = k; },
     // Calor del escape: a y b son tramos [x0, y0, x1, y1] en coordenadas de pantalla 0..1 (o null); width en pantalla; strength 0 lo apaga
     setHeat(a, b, width, strength, t) {

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { createWorld, QUALITY, SUN } from './world.js';
 import { Track } from './track.js';
-import { MAPS, mapById } from './maps/index.js';
+import { MAPS, mapById, DIFFS } from './maps/index.js';
 import { Race } from './race.js';
 import { encodeCourse, decodeCourse, courseId, CourseStore, cleanCourseName } from './course.js';
 import { Editor } from './editor.js';
@@ -210,6 +210,22 @@ function selectMap(id) { settings.map = mapById(id).id; store.set('jt-map', sett
 // Medallas de la contrarreloj de cada mapa (tiempo total: 3 vueltas en el desierto, 1 en los demás)
 const MEDALS = [['autor', '🏆', 'Autor'], ['oro', '🥇', 'Oro'], ['plata', '🥈', 'Plata'], ['bronce', '🥉', 'Bronce']];
 const medalOf = (m, time) => (time && m.medals ? MEDALS.find(([k]) => time <= m.medals[k]) || null : null);
+// Estrellas: una por medalla (bronce 1 … autor 4); los niveles Demonio dan el doble
+const starsOf = m => { const md = medalOf(m, bestOf(m)); return md ? (4 - MEDALS.indexOf(md)) * (m.demon ? 2 : 1) : 0; };
+const totalStars = () => MAPS.reduce((a, m) => a + starsOf(m), 0);
+const maxStars = () => MAPS.reduce((a, m) => a + 4 * (m.demon ? 2 : 1), 0);
+const tries = m => +store.get(`jt-${m.key}-tries`, 0) || 0;
+const bestPct = m => +store.get(`jt-${m.key}-pct`, 0) || 0;
+const diffBadge = m => (m.diff != null ? `<span class="diff" style="--dc:${DIFFS[m.diff][1]}">${m.demon ? '😈 ' : ''}${DIFFS[m.diff][0]}</span>` : '');
+// ¿Se aplica la regla Demonio (un choque y a empezar)? En la contrarreloj de un nivel Demonio, salvo en práctica
+const demonRule = () => game.mode === 'trial' && !track.custom && track.map.demon && !practice();
+// % recorrido de la vuelta (contrarreloj de una vuelta: de la salida a la meta)
+function runPct() {
+  if (race.finished) return 100;
+  if (race.lap < 1) return 0;
+  const L = track.length;
+  return Math.max(0, Math.min(99, Math.floor((((race.s - track.gates[0].s) % L + L) % L) / L * 100)));
+}
 // Muestra «Cargando…» un par de fotogramas antes de algo que tarda (construir un mapa)
 function withLoading(text, fn) {
   $('loading').textContent = text; $('loading').hidden = false;
@@ -230,12 +246,14 @@ function openMaps() {
     b.className = 'mapCard' + (m.id === track.map.id ? ' on' : '') + (open ? '' : ' locked');
     b.disabled = !open;
     b.innerHTML = `<div class="thumb" style="background-image:url(img/mapas/${m.id}.jpg)">${open ? (trial ? '<span class="practiceTag">Práctica</span>' : '') : '<span class="lock">🔒</span>'}</div><b>Nivel ${m.level} · ${esc(m.name)}</b><small>${open ? esc(m.blurb || '') : `Se abre con el bronce (${fmtTime(prev.medals.bronce)}) en «${esc(prev.name)}».`}</small>` +
-      `<span class="mrow">${md ? `${md[1]} ${md[2]}` : 'Sin medalla'} · tu mejor: ${best ? fmtTime(best) : '—'}</span>` +
+      `<span class="mrow">${diffBadge(m)} <span class="stars">${'★'.repeat(starsOf(m) / (m.demon ? 2 : 1))}${'☆'.repeat(4 - starsOf(m) / (m.demon ? 2 : 1))}</span>${m.demon ? ' <small>×2</small>' : ''}</span>` +
+      `<span class="mrow">${md ? `${md[1]} ${md[2]}` : 'Sin medalla'} · tu mejor: ${best ? fmtTime(best) : '—'}${!best && tries(m) ? ` · mejor ${bestPct(m)} %` : ''}${tries(m) ? ` · ${tries(m)} intentos` : ''}</span>` +
       `<span class="mrow dim">Contrarreloj de ${m.laps} ${m.laps === 1 ? 'vuelta' : 'vueltas'} · oro ${fmtTime(m.medals.oro)} · autor ${fmtTime(m.medals.autor)}</span>`;
     b.onclick = () => { selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); };
     box.appendChild(b);
   }
   $('practiceOn').checked = practice();
+  $('starsTotal').textContent = `${totalStars()} / ${maxStars()} ★`;
   showOverlay('maps');
 }
 // Pone un circuito (o el original): puertas, anillos, objetos, récords; los jets que ya vuelan siguen con la carrera nueva
@@ -330,6 +348,8 @@ function startTrial(laps, quick = false) {
   resetRun();
   run = { splits: [] };
   pbSplits = (() => { try { return JSON.parse(store.get(`jt-${MAP}-splits`, '[]')); } catch { return []; } })();
+  game.runId = (game.runId || 0) + 1;
+  if (!track.custom) { const n = tries(track.map) + 1; store.set(`jt-${MAP}-tries`, String(n)); game.tryN = n; }
   me.start = startSpot({ kind: 'carrera', dir: 1 }, 0, true);
   me.place(me.start.pos, me.start.fwd, 0, 99);
   syncAim();
@@ -337,7 +357,7 @@ function startTrial(laps, quick = false) {
   showOverlay(null); hud.show(true); cam.cut = true;
   touchTrial();
   lockIfNeeded();
-  if (quick && flying) { game.t = 0; game.go = performance.now(); launch(); }
+  if (quick && flying) { game.t = 0; game.go = performance.now(); launch(); if (game.tryN) hud.center(`INTENTO ${game.tryN}`, 'small', 0.9); }
   else { const cd = quick ? 1.2 : 3.6; game.go = performance.now() + cd * 1000; game.t = -cd; }
 }
 // Botón táctil de reiniciar: solo en la contrarreloj
@@ -387,7 +407,7 @@ function toMenu(msg = '') {
   applyMap(settings.map);
   applyCourse(settings.course);
   fillCourseSelect($('courseMenu'), settings.course);
-  $('mapName').textContent = track.map.name;
+  $('mapName').innerHTML = `${esc(track.map.name)} ${diffBadge(track.map)} <span class="stars">${totalStars()} ★</span>`;
   $('mapBlurb').textContent = `${track.map.blurb} Modos: carrera, carrera con objetos, copa, combate aéreo y acrobacias. Con el editor puedes trazar tus propios circuitos por el mismo mapa.`;
   $('btnTrial').textContent = `Contrarreloj · ${track.map.laps} ${track.map.laps === 1 ? 'vuelta' : 'vueltas'}`;
   clearRacers();
@@ -857,7 +877,7 @@ function stepRacer(r, ev, awards) {
     if (isMe && game.mode === 'trial' && game.phase === 'race' && race.lap >= 1) ghostRec.sample(game.t - race.lapStart, J);
   } else {
     J.step(STEP, r.ctl, track, game.t, ev);
-    if (J.crashT <= 0) isMe ? respawn() : respawnRacer(r);
+    if (J.crashT <= 0 && !(isMe && demonRule())) isMe ? respawn() : respawnRacer(r);
   }
 }
 // Guarda y anuncia una pirueta (para las formaciones)
@@ -927,12 +947,19 @@ function handleEvents(ev, awards) {
         fx.explosion(e.p, e.v);
         fx.eject(e.p, e.v, me.cfg);
         game.crashAt = new THREE.Vector3(e.p.x, e.p.y, e.p.z);
+        game.impactT = 0.22; // fotograma de impacto (solo se ve en los niveles con estilo cómic)
         style.breakChain(); manual.reset(); combo.state = 'idle'; pendingTrick = null;
         cam.shake = 1.2;
         if (net.online) net.send({ t: 'ev', k: 'crash', id: me.id, p: e.p, v: e.v, by: e.by });
         recorder.event({ k: 'boom', id: me.id, p: e.p, v: e.v });
         creditCrash(me, e.by);
-        if (!menu) { sound.sfx('explosion'); sound.sfx('chute'); hud.center(e.by && e.by !== me.id ? '¡DERRIBADO!' : '¡BOOM!', 'small', 1.4); }
+        if (!menu && game.mode === 'trial' && !track.custom && game.phase === 'race') {
+          const pct = runPct(), prev = bestPct(track.map), nb = pct > prev;
+          if (nb) store.set(`jt-${MAP}-pct`, String(pct));
+          sound.sfx('explosion'); sound.sfx('chute');
+          hud.center(`${pct} %\n${nb && prev ? '¡nuevo mejor!' : `mejor ${Math.max(pct, prev)} %`}`, 'small', 1.4);
+          if (demonRule()) { const id = game.runId; setTimeout(() => { if (game.runId === id && game.mode === 'trial' && !game.paused) startTrial(game.trialLaps, true); }, 950); }
+        } else if (!menu) { sound.sfx('explosion'); sound.sfx('chute'); hud.center(e.by && e.by !== me.id ? '¡DERRIBADO!' : '¡BOOM!', 'small', 1.4); }
         break;
       case 'scrape':
         fx.sparks(e.p); fx.puff(e.p); cam.shake = Math.max(cam.shake, 0.5);
@@ -1067,7 +1094,7 @@ function onLap(e) {
     return;
   }
   if (game.mode !== 'trial' || game.phase === 'menu') { if (game.mode === 'free') hud.feed(`VUELTA ${fmtTime(e.time)}`, 'info'); ghostRec.reset(); return; }
-  const best = !rec.lap || e.time < rec.lap;
+  const best = (!rec.lap || e.time < rec.lap) && !(track.map.demon && practice() && !track.custom);
   if (best) {
     rec.lap = e.time;
     store.set(`jt-${MAP}-lap`, e.time.toFixed(3));
@@ -1091,24 +1118,27 @@ function onFinish(e) {
     return;
   }
   hud.center('¡META!', '', 2.4);
-  const total = e.time, prevTotal = rec.total, newTotal = !rec.total || total < rec.total, newStyle = style.total > rec.style;
+  const demonPractice = track.map.demon && practice() && !track.custom, starsBefore = totalStars();
+  const total = e.time, prevTotal = rec.total, newTotal = (!rec.total || total < rec.total) && !demonPractice, newStyle = style.total > rec.style && !demonPractice;
+  if (!track.custom) store.set(`jt-${MAP}-pct`, '100');
   const nextLevel = track.custom ? null : MAPS[MAPS.indexOf(track.map) + 1], wasOpen = nextLevel && earned(nextLevel);
   if (newTotal) { rec.total = total; store.set(`jt-${MAP}-total`, total.toFixed(3)); store.set(`jt-${MAP}-splits`, JSON.stringify(run.splits)); publishRecord(total); }
   if (prevTotal && run.splits.length) showSplit(total - prevTotal);
+  { const gained = totalStars() - starsBefore; if (gained > 0) setTimeout(() => { toast(`+${gained} ★ · tienes ${totalStars()} estrellas`); }, 600); }
   // el último nivel: aviso la primera vez que se saca el bronce (ganado de verdad, no en práctica)
   const last = !track.custom && track.map === MAPS[MAPS.length - 1], bz = track.map.medals?.bronce;
   if (last && earned(track.map) && total <= bz && !(prevTotal && prevTotal <= bz)) setTimeout(() => { toast(`¡Has superado los ${MAPS.length} niveles!`); sound.sfx('record'); }, 1200);
   if (nextLevel && !wasOpen && earned(nextLevel)) { setTimeout(() => { toast(`¡Nivel ${nextLevel.level} desbloqueado: ${nextLevel.name}!`); sound.sfx('record'); }, 1200); }
   const md = track.custom ? null : medalOf(track.map, total), best = track.custom ? null : medalOf(track.map, rec.total);
   const nextM = track.custom ? null : [...MEDALS].reverse().find(([k]) => track.map.medals[k] < rec.total);
-  const medalLine = track.custom ? '' : `<p style="text-align:center;font-weight:800">${md ? `${md[1]} Medalla de ${md[2].toLowerCase()}` : 'Sin medalla'}${nextM ? ` · siguiente: ${nextM[1]} ${fmtTime(track.map.medals[nextM[0]])} (te faltan ${(rec.total - track.map.medals[nextM[0]]).toFixed(3).replace('.', ',')} s)` : best ? ' · ¡tienes todas!' : ''}</p>`;
+  const medalLine = track.custom ? '' : `<p style="text-align:center;font-weight:800">${md ? `${demonPractice ? 'Sería: ' : ''}${md[1]} Medalla de ${md[2].toLowerCase()}` : 'Sin medalla'}${nextM ? ` · siguiente: ${nextM[1]} ${fmtTime(track.map.medals[nextM[0]])} (te faltan ${(rec.total - track.map.medals[nextM[0]]).toFixed(3).replace('.', ',')} s)` : best ? ' · ¡tienes todas!' : ''}</p>`;
   if (newStyle) { rec.style = style.total; store.set(`jt-${MAP}-style`, String(style.total)); }
   const laps = race.lapTimes.map((t, i) => `Vuelta ${i + 1}: <b>${fmtTime(t)}</b>${t === race.best ? ' ⭐' : ''}`).join('<br>');
   $('resTitle').textContent = newTotal ? '¡Nuevo récord!' : '¡Meta!';
   $('resTable').innerHTML = '';
   $('resWait').textContent = '';
   $('resBody').innerHTML = `<p style="font-size:30px;text-align:center;margin:6px 0;color:var(--gold)"><b>${fmtTime(total)}</b>${prevTotal && !newTotal ? `<small style="font-size:15px;color:#ff8a8a"> +${(total - prevTotal).toFixed(3).replace('.', ',')}</small>` : prevTotal && newTotal ? `<small style="font-size:15px;color:#58f0a0"> −${(prevTotal - total).toFixed(3).replace('.', ',')}</small>` : ''}</p>
-    ${medalLine}
+    ${medalLine}${demonPractice ? '<p style="text-align:center;color:#ffb02e"><b>Práctica con puntos de control:</b> este tiempo no cuenta. Quita el modo práctica para la vuelta de verdad (un choque y a empezar).</p>' : ''}
     <p>${laps}</p>
     <p>Estilo: <b>${style.total.toLocaleString('es-ES')}</b> puntos en ${style.count} piruetas${newStyle ? ' · ¡récord de estilo!' : ''}</p>
     <p class="hint">Récords: vuelta ${fmtTime(rec.lap)} · carrera ${fmtTime(rec.total)} · estilo ${rec.style.toLocaleString('es-ES')}. El fantasma cian es tu mejor vuelta${rival && rival.key === MAP ? ` y el rosa, el de ${esc(rival.name)} (${fmtTime(rival.time)})` : ''}. <b>Retroceso</b> (o mantener Select) reinicia al instante.</p>`;
@@ -1386,6 +1416,10 @@ function tensionFx(dt) {
   const k = track.map.tension || 0, racing = game.phase === 'race' || game.phase === 'countdown', T = k * (racing ? 1 : game.phase === 'menu' ? 0.3 : 0.6);
   const b = music.beat(), pulse = Math.pow(1 - b, 5);
   world.setTension(T * 0.011 + (jet.boosting ? T * 0.008 : 0), T * 0.2 * pulse, T * 0.08);
+  // estilo cómic y anime desde «Muy difícil»: marco de viñeta, trama en los bordes, líneas de velocidad y fotograma de impacto
+  const comic = track.map.diff >= 3 && !track.custom ? [0.45, 0.75, 1][Math.min(2, track.map.diff - 3)] * (racing ? 1 : game.phase === 'menu' ? 0 : 0.7) : 0;
+  game.impactT = Math.max(0, (game.impactT || 0) - dt);
+  world.setComic(comic, clamp((jet.speed - 80) / 60, 0, 1) * (jet.boosting ? 1 : 0.6), comic ? Math.min(1, game.impactT / 0.12) : 0);
   if (T < 0.01 || game.paused) return;
   const sp = clamp((jet.speed - 70) / 70, 0, 1), sh = T * (0.18 + sp * 0.55);
   camera.position.add(_sh.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh));
@@ -1686,7 +1720,7 @@ function frame(now) {
   }
   if (photo.on) photoCamera(dt, rp, rq); else updateCamera(dt);
   updateHeat();
-  if (photo.on) world.setTension(0, 0, 0); else tensionFx(dt);
+  if (photo.on) { world.setTension(0, 0, 0); world.setComic(0, 0, 0); } else tensionFx(dt);
   if (!photo.on) drawHud(dt);
   updateVoices(dt);
   if (playing() && !game.paused && sound.ctx) {
@@ -1747,7 +1781,7 @@ function replayFocusRacer() { return racerById(recorder.ids[replay.focus]); }
 let rpBarT = 0;
 function replayFrame(dt) {
   const R = replay;
-  world.setTension(0, 0, 0);
+  world.setTension(0, 0, 0); world.setComic(0, 0, 0);
   world.setHeat(null, null, 0, 0);
   // teclado: espacio pausa, flechas avanzan o retroceden, A/D cambian de piloto, C la cámara, Esc sale
   if (!photo.on) {
@@ -2000,7 +2034,7 @@ function closeEditorUI() {
   view.courseGroup.visible = true; items.group.visible = items.on;
 }
 function editorFrame(dt) {
-  world.setTension(0, 0, 0);
+  world.setTension(0, 0, 0); world.setComic(0, 0, 0);
   world.setHeat(null, null, 0, 0);
   editor.update(dt, input.keys);
   game.clock += dt;
@@ -2134,6 +2168,7 @@ function enterHangar() {
   sound.silence();
   showOverlay('hangar');
   hangar.active = true;
+  hangarUI.stars = totalStars();
   hangarUI.open(settings.cfg, settings.name);
 }
 let backTo = 'menu';
@@ -2312,7 +2347,7 @@ if (DEBUG) {
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
     startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
     items, recorder, photo, music, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
-    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, unlocked, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
+    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, unlocked, earned, totalStars, starsOf, runPct, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },

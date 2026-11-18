@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildJet } from './jet-model.js';
-import { PIECES, FINISHES, PALETTE, DECAL_SLOTS, DECAL_IDS, DECAL_LABELS, HELMETS, STATS, statsOf, defaultCfg, randomCfg, sanitizeCfg } from './hangar-data.js';
+import { PIECES, FINISHES, PALETTE, STAR_COLORS, DECAL_SLOTS, DECAL_IDS, DECAL_LABELS, HELMETS, STATS, statsOf, defaultCfg, randomCfg, sanitizeCfg } from './hangar-data.js';
 import { decalTexture } from './decals.js';
 
 const $ = id => document.getElementById(id);
@@ -127,9 +127,19 @@ export class HangarUI {
       for (const [id, label] of items) { const b = document.createElement('button'); b.textContent = label; b.className = id === cur ? 'on' : ''; b.onclick = () => { set(id); this.changed(); }; d.appendChild(b); }
       box.appendChild(d);
     };
+    const have = this.stars || 0;
     const swatches = (cur, set, list = PALETTE) => {
       const d = document.createElement('div'); d.className = 'swatches left';
       for (const c of list) { const b = document.createElement('button'); b.className = 'swatch' + (c === cur ? ' on' : ''); b.style.background = c; b.setAttribute('aria-label', 'Color ' + c); b.onclick = () => { set(c); this.changed(); }; d.appendChild(b); }
+      // colores especiales: se abren con estrellas
+      for (const [c, need] of STAR_COLORS) {
+        const b = document.createElement('button'), open = have >= need;
+        b.className = 'swatch star' + (c === cur ? ' on' : '') + (open ? '' : ' locked'); b.style.background = c;
+        b.title = open ? 'Color especial' : `Se abre con ${need} ★`; b.setAttribute('aria-label', b.title);
+        if (!open) b.textContent = '🔒';
+        b.onclick = () => { if (!open) return; set(c); this.changed(); };
+        d.appendChild(b);
+      }
       box.appendChild(d);
     };
     const C = this.cfg;
@@ -142,7 +152,8 @@ export class HangarUI {
     } else if (this.tab === 'pintura') {
       for (const [k, label] of [['c1', 'Color principal'], ['c2', 'Segundo color (rayas, número)'], ['c3', 'Detalles']]) { h3(label); swatches(C.paint[k], c => { C.paint[k] = c; }); }
       h3('Acabado');
-      opts(Object.entries(FINISHES).map(([id, f]) => [id, f.label]), C.paint.finish, id => { C.paint.finish = id; });
+      opts(Object.entries(FINISHES).map(([id, f]) => [id, f.stars && have < f.stars ? `🔒 ${f.label} · ${f.stars} ★` : f.label]), C.paint.finish, id => { if (FINISHES[id].stars && have < FINISHES[id].stars) return; C.paint.finish = id; });
+      const p = document.createElement('p'); p.className = 'hint'; p.textContent = `Tienes ${have} ★. Las medallas de los niveles dan estrellas (bronce 1, plata 2, oro 3, autor 4; el doble en los Demonio) y abren acabados y colores especiales.`; box.appendChild(p);
     } else if (this.tab === 'calcos') {
       h3('Dónde');
       opts(DECAL_SLOTS.map(([id, l]) => [id, l + (C.decals[id] ? ' •' : '')]), this.slot, id => { this.slot = id; });

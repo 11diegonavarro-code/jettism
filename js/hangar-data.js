@@ -47,7 +47,14 @@ export const FINISHES = {
   mate: { label: 'Mate', metal: 0.05, rough: 0.72, env: 0.8 },
   metal: { label: 'Metálico', metal: 0.85, rough: 0.26, env: 1.4 },
   perla: { label: 'Perlado', metal: 0.5, rough: 0.16, env: 1.8 },
+  // se abren con estrellas
+  espejo: { label: 'Espejo', metal: 1, rough: 0.03, env: 2.2, stars: 8 },
+  neon: { label: 'Neón', metal: 0.2, rough: 0.3, env: 1, glow: 0.5, stars: 18 },
+  obsidiana: { label: 'Obsidiana', metal: 0.75, rough: 0.06, env: 2.6, stars: 30 },
+  plasma: { label: 'Plasma', metal: 0.1, rough: 0.2, env: 1, glow: 1.1, stars: 50 },
 };
+// Colores especiales (pintura, humo, llama y casco) que se abren con estrellas
+export const STAR_COLORS = [['#ffd700', 4], ['#00ffd5', 12], ['#ff00aa', 16], ['#7dff00', 24], ['#ff3b00', 36], ['#9d00ff', 44], ['#ffffff', 60], ['#000000', 72]];
 
 export const PALETTE = ['#d62839', '#f97316', '#f2b630', '#21b573', '#0fb5c4', '#2f6fe0', '#8b5cf6', '#ec4899', '#f3efe6', '#c9c9d1', '#2d3142', '#111318', '#7a4a2c', '#b8f04a', '#ff8fa8', '#3ee8ff'];
 

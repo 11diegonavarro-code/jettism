@@ -45,11 +45,14 @@ const campo = { ...campoDef, atmo: campoView.atmo, buildView: campoView.buildVie
 const luz = { ...luzDef, atmo: luzView.atmo, buildView: luzView.buildView, music: luzView.MUSIC, cloudLayout: luzView.CLOUDS };
 
 // Niveles: de la paleta más viva a la más oscura, y con ellos la dificultad, la música y la tensión de la cámara
-const LEVELS = ['collage', 'torres', 'desierto', 'espiral', 'tunel', 'laberinto', 'plano', 'nudos', 'campo', 'luz'];
+// 18 huecos: los que aún no están hechos se saltan (el número de nivel se cuenta solo con los hechos)
+const LEVELS = ['collage', 'jardin', 'torres', 'rostro', 'desierto', 'ambar', 'espiral', 'liquido', 'tunel', 'mar', 'laberinto', 'escaleras', 'plano', 'nudos', 'campo', 'ojos', 'luz', 'estelar'];
+// dificultad por tramos de tres huecos, como en los juegos de plataformas de ritmo; los Demonio: un choque y a empezar
+export const DIFFS = [['Fácil', '#58f0a0'], ['Normal', '#3ee8ff'], ['Difícil', '#f2b630'], ['Muy difícil', '#f97316'], ['Locura', '#ec4899'], ['Demonio', '#ff2a2a']];
 const all = { collage, torres, desierto, espiral, tunel, laberinto, plano, nudos, campo, luz };
 export const MAPS = LEVELS.map((id, i) => all[id] && Object.assign(all[id], {
-  tension: i / (LEVELS.length - 1),
-  // el tempo sube con el nivel: de 82 a unos 150 pulsos por minuto
-  music: { ...(all[id].music || {}), bpm: Math.round(82 + i * 7.5), tension: i / (LEVELS.length - 1) },
+  slot: i, tension: i / (LEVELS.length - 1), diff: Math.floor(i / 3), demon: Math.floor(i / 3) === DIFFS.length - 1,
+  // el tempo sube con el nivel: de 82 a unos 153 pulsos por minuto
+  music: { ...(all[id].music || {}), bpm: Math.round(82 + i * 4.2), tension: i / (LEVELS.length - 1) },
 })).filter(Boolean).map((m, i) => Object.assign(m, { level: i + 1 })); // número de nivel según los mapas ya hechos
 export const mapById = id => MAPS.find(m => m.id === id) || MAPS[0];

@@ -184,6 +184,10 @@
   .mapCard.locked { opacity: .55; cursor: not-allowed; }
   .mapCard.locked .thumb { filter: grayscale(1) brightness(.6); display: grid; place-items: center; }
   .mapCard .lock { font-size: 40px; filter: none; }
+  .diff { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 800; color: #111; background: var(--dc); }
+  .stars { color: #ffd23f; letter-spacing: 1px; font-weight: 800; }
+  .swatch.locked { opacity: .45; font-size: 12px; cursor: not-allowed; }
+  .swatch.star { box-shadow: 0 0 0 2px #ffd23f inset; }
   .mapCard .practiceTag { position: absolute; top: 8px; left: 8px; background: #ffb02e; color: #1a1206; font-weight: 800; font-size: 12px; padding: 2px 8px; border-radius: 6px; }
   .practiceRow { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: rgba(255,176,46,.1); cursor: pointer; font-size: 14px; }
   .practiceRow input { margin-top: 3px; width: 18px; height: 18px; }
@@ -370,8 +374,8 @@
 
 <div id="maps" class="overlay centered" hidden>
   <div class="panel" style="width:min(960px,100%)">
-    <h2>Niveles</h2>
-    <p class="hint" style="margin-top:0">Cada nivel es más difícil y más oscuro que el anterior. Saca el bronce en uno para abrir el siguiente. Cada nivel guarda tu mejor tiempo, tu fantasma y tu medalla.</p>
+    <h2>Niveles <span id="starsTotal" class="stars" style="font-size:18px"></span></h2>
+    <p class="hint" style="margin-top:0">Cada nivel es más difícil y más oscuro que el anterior. Saca el bronce en uno para abrir el siguiente. Las medallas dan estrellas, que abren acabados y colores en el hangar. En los niveles 😈 Demonio, un choque te devuelve a la salida. Cada nivel guarda tu mejor tiempo, tu fantasma y tu medalla.</p>
     <label class="practiceRow"><input type="checkbox" id="practiceOn"> <span><b>Modo práctica:</b> todos los niveles abiertos para entrenar. Tus tiempos se guardan, pero para abrir niveles de verdad sigue haciendo falta el bronce en el anterior.</span></label>
     <div id="mapCards" class="mapCards"></div>
     <div style="text-align:center"><button id="btnMapsBack" class="link">Volver</button></div>

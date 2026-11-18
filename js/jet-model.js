@@ -170,7 +170,7 @@ function stick(g, targets, origin, dir, size, tex, color, rot = 0, rough = 0.4) 
 export function buildJet(cfg = defaultCfg(), { ghost = false, ghostColor = 0x7fe9ff, lite = false, pilotName = '' } = {}) {
   const g = new THREE.Group();
   const P = cfg.paint, FIN = FINISHES[P.finish] || FINISHES.brillo;
-  const paint = c => new THREE.MeshStandardMaterial({ color: c, metalness: FIN.metal, roughness: FIN.rough, envMapIntensity: FIN.env });
+  const paint = c => new THREE.MeshStandardMaterial({ color: c, metalness: FIN.metal, roughness: FIN.rough, envMapIntensity: FIN.env, emissive: FIN.glow ? new THREE.Color(c).multiplyScalar(FIN.glow) : 0x000000 });
   const M = {
     body: paint(P.c1), trim: paint(P.c2),
     dark: new THREE.MeshStandardMaterial({ color: P.c3, metalness: 0.5, roughness: 0.45 }),
