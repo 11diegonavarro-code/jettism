@@ -59,8 +59,37 @@ export function buildView(cv) {
   const own = g => { geos.push(g); return g; };
   const wall = mat(new THREE.MeshStandardMaterial({ map: t.wall, roughness: 0.85, side: THREE.BackSide }));
   t.wall.repeat.set(3, 2);
-  for (const d of DOMES) { const m = new THREE.Mesh(own(new THREE.SphereGeometry(d.r + 2, 96, 64)), wall); m.position.copy(v3(d.c)); m.receiveShadow = true; root.add(m); }
-  for (const tb of TUBES) { const a = v3(tb.a), b = v3(tb.b), m = new THREE.Mesh(own(new THREE.CylinderGeometry(tb.r + 1, tb.r + 1, a.distanceTo(b) + 40, 48, 8, true)), wall); m.position.copy(a.clone().add(b).multiplyScalar(0.5)); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); root.add(m); }
+  // distancia de un punto al eje de un conducto
+  const tubeDist = (p, tb) => { const a = v3(tb.a), ab = v3(tb.b).sub(a), f = Math.max(0, Math.min(1, p.clone().sub(a).dot(ab) / ab.lengthSq())); return p.distanceTo(a.addScaledVector(ab, f)); };
+  // cúpulas con un agujero de verdad donde entra cada conducto (se quitan los triángulos que caen dentro del tubo)
+  for (const d of DOMES) {
+    const g = new THREE.SphereGeometry(d.r + 2, 128, 84).toNonIndexed(), pos = g.attributes.position, keep = [], tmp = new THREE.Vector3(), C = v3(d.c);
+    for (let i = 0; i < pos.count; i += 3) {
+      let hole = false;
+      for (let j = 0; j < 3 && !hole; j++) { tmp.fromBufferAttribute(pos, i + j).add(C); if (TUBES.some(tb => tubeDist(tmp, tb) < tb.r + 1)) hole = true; }
+      if (!hole) keep.push(i);
+    }
+    const ng = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'uv']) { const src = g.attributes[name], arr = new Float32Array(keep.length * 3 * src.itemSize); keep.forEach((i, k) => { for (let j = 0; j < 3; j++) for (let c = 0; c < src.itemSize; c++) arr[(k * 3 + j) * src.itemSize + c] = src.array[(i + j) * src.itemSize + c]; }); ng.setAttribute(name, new THREE.BufferAttribute(arr, src.itemSize)); }
+    g.dispose();
+    const m = new THREE.Mesh(own(ng), wall); m.position.copy(C); m.receiveShadow = true; root.add(m);
+  }
+  // conductos: solo el trozo que va de una cúpula a la otra, con anillos de luz por dentro y un aro brillante en cada boca
+  const glow = mat(new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffd27a').multiplyScalar(2.6) })), Yv = new THREE.Vector3(0, 1, 0);
+  for (const tb of TUBES) {
+    const a = v3(tb.a), b = v3(tb.b), dir = b.clone().sub(a).normalize(), len = a.distanceTo(b);
+    // dónde sale el eje de cada cúpula
+    const exitOf = (from, sign) => { for (let t = 0; t <= len; t += 1) { const p = from.clone().addScaledVector(dir, sign * t); if (!DOMES.some(d => p.distanceTo(v3(d.c)) < d.r - 1)) return t; } return 0; };
+    const t0 = exitOf(a, 1), t1 = len - exitOf(b, -1), mid = a.clone().addScaledVector(dir, (t0 + t1) / 2), q = new THREE.Quaternion().setFromUnitVectors(Yv, dir);
+    const m = new THREE.Mesh(own(new THREE.CylinderGeometry(tb.r + 1, tb.r + 1, Math.max(4, t1 - t0) + 8, 48, 8, true)), wall); m.position.copy(mid); m.quaternion.copy(q); root.add(m);
+    const torus = own(new THREE.TorusGeometry(tb.r + 2, 1.6, 10, 64));
+    for (const t of [t0, t1]) { const r = new THREE.Mesh(torus, glow); r.position.copy(a.clone().addScaledVector(dir, t)); r.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir); root.add(r); }
+    const lampRing = own(new THREE.TorusGeometry(tb.r - 0.5, 0.35, 6, 48));
+    for (let t = t0 + 12; t < t1 - 6; t += 14) { const r = new THREE.Mesh(lampRing, glow); r.position.copy(a.clone().addScaledVector(dir, t)); r.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir); root.add(r); }
+    // un halo de luz en cada boca (sin luces de verdad: cuestan mucho en la gráfica integrada)
+    const haloM = mat(new THREE.MeshBasicMaterial({ color: '#ffcf80', transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
+    for (const t of [t0, t1]) { const h = new THREE.Mesh(own(new THREE.CircleGeometry(tb.r * 1.9, 48)), haloM); h.position.copy(a.clone().addScaledVector(dir, t)); h.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir); root.add(h); }
+  }
   // globos oculares en las paredes: el blanco y el iris, mirando al centro de su cúpula
   const white = mat(new THREE.MeshStandardMaterial({ color: '#e8e2d4', roughness: 0.35 })), irisM = mat(new THREE.MeshStandardMaterial({ map: t.iris, roughness: 0.25 }));
   const eyes = T.decor.filter(d => d.kind === 'walleye'), sph = own(new THREE.SphereGeometry(1, 24, 16)), disc = own(new THREE.CircleGeometry(1, 32));
