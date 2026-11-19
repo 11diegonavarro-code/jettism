@@ -292,9 +292,11 @@ function openMaps() {
     b.onclick = () => { selectMap(m.id); withLoading(`Cargando «${m.name}»…`, () => toMenu()); };
     box.appendChild(b);
   }
-  // mapas abiertos: siempre disponibles para vuelo libre, carreras y modos; fuera de la progresión
+  // mapas abiertos: siempre disponibles para vuelo libre, carreras y modos; fuera de la progresión (van arriba del todo)
+  const levelCards = [...box.children]; box.innerHTML = '';
+  { const h = document.createElement('h3'); h.className = 'arenaHead'; h.textContent = 'Niveles · contrarreloj'; levelCards.unshift(h); }
   if (ARENA_MAPS.length) {
-    const h = document.createElement('h3'); h.className = 'arenaHead'; h.textContent = 'Mapas abiertos · para vuelo libre, carreras y modos'; box.appendChild(h);
+    const h = document.createElement('h3'); h.className = 'arenaHead'; h.textContent = 'Mapas abiertos · vuelo libre, carreras, combate por equipos y Aerobalón (el Estadio)'; box.appendChild(h);
     for (const m of ARENA_MAPS) {
       const best = +store.get(`jt-${m.key}-total`, 0) || null, b = document.createElement('button');
       b.className = 'mapCard' + (m.id === track.map.id ? ' on' : '');
@@ -303,6 +305,7 @@ function openMaps() {
       box.appendChild(b);
     }
   }
+  for (const c of levelCards) box.appendChild(c);
   $('practiceOn').checked = practice();
   $('starsTotal').textContent = `${totalStars()} / ${maxStars()} ★`;
   showOverlay('maps');
@@ -619,7 +622,7 @@ function renderLobby() {
   $('courseInfo').textContent = hosting ? '' : `Mapa: ${mapById(L.map).name} · circuito: ${courseName(L.course)}`;
   $('btnSaveCourse').hidden = hosting || !L.course || courses.list().some(c => c.code === L.course);
   $('mode').value = L.mode || 'carrera';
-  $('modeInfo').textContent = (MODES[L.mode] || MODES.carrera).info;
+  $('modeInfo').textContent = (MODES[L.mode] || MODES.carrera).info + (L.mode === 'aerobalon' ? ' Se juega en el Estadio flotante.' : L.mode === 'equipos' ? ' Mejor en un mapa abierto (Estadio, Desierto, Espiral o Campo).' : '');
   const isTimed = L.mode === 'combate' || L.mode === 'acro' || L.mode === 'equipos' || L.mode === 'aerobalon';
   $('classRow').hidden = L.mode !== 'equipos';
   $('cls').value = settings.cls; $('clsInfo').textContent = L.mode === 'equipos' ? CLASSES[settings.cls].desc : '';
@@ -2392,7 +2395,12 @@ $('courseSel').onchange = e => {
   selectCourse(lobby.course); applyCourse(lobby.course); updateRecords();
   if (net.online) broadcastLobby(); else renderLobby();
 };
-$('mode').onchange = e => { lobby.mode = e.target.value; game.cup = null; if (net.online) broadcastLobby(); else renderLobby(); };
+$('mode').onchange = e => {
+  lobby.mode = e.target.value; game.cup = null;
+  // el Aerobalón se juega siempre en el Estadio flotante: se cambia el mapa al elegirlo
+  if (lobby.mode === 'aerobalon' && track.map.id !== 'estadio') { $('mapSel').value = 'estadio'; $('mapSel').onchange({ target: $('mapSel') }); return; }
+  if (net.online) broadcastLobby(); else renderLobby();
+};
 $('cls').onchange = e => { settings.cls = e.target.value; store.set('jt-class', settings.cls); $('clsInfo').textContent = CLASSES[settings.cls].desc; };
 $('time').onchange = e => { lobby.time = +e.target.value; if (net.online) broadcastLobby(); else renderLobby(); };
 $('btnFly').onclick = closeLobbyPanel;
