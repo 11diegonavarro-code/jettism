@@ -604,6 +604,13 @@
   <button data-btn="pause">❚❚</button>
 </div>
 
-<script type="module" src="js/main.js"></script>
+<script type="module">
+// Arranque con versión: si los archivos del juego han cambiado desde la última visita, se descargan de nuevo
+// (saltándose la caché del navegador) antes de arrancar, para que nadie juegue con una mezcla de versiones.
+const V = 'bb435b3aa2', FILES = ["js/ai.js", "js/audio.js", "js/ballgame.js", "js/board.js", "js/clouds.js", "js/combat.js", "js/course-view.js", "js/course.js", "js/decals.js", "js/editor.js", "js/flight.js", "js/fx.js", "js/ghost.js", "js/hangar-data.js", "js/hangar.js", "js/hud.js", "js/input.js", "js/items.js", "js/jet-model.js", "js/main.js", "js/maps/ambar-view.js", "js/maps/ambar.js", "js/maps/art-view.js", "js/maps/art.js", "js/maps/campo-view.js", "js/maps/campo.js", "js/maps/canyon-view.js", "js/maps/canyon.js", "js/maps/cave.js", "js/maps/collage-view.js", "js/maps/collage.js", "js/maps/escaleras-view.js", "js/maps/escaleras.js", "js/maps/espiral-view.js", "js/maps/espiral.js", "js/maps/estadio-view.js", "js/maps/estadio.js", "js/maps/estelar-view.js", "js/maps/estelar.js", "js/maps/index.js", "js/maps/jardin-view.js", "js/maps/jardin.js", "js/maps/kit.js", "js/maps/laberinto-view.js", "js/maps/laberinto.js", "js/maps/liquido-view.js", "js/maps/liquido.js", "js/maps/luz-view.js", "js/maps/luz.js", "js/maps/mar-view.js", "js/maps/mar.js", "js/maps/nudos-view.js", "js/maps/nudos.js", "js/maps/ojos-view.js", "js/maps/ojos.js", "js/maps/plano-view.js", "js/maps/plano.js", "js/maps/rostro-view.js", "js/maps/rostro.js", "js/maps/shell-view.js", "js/maps/shell.js", "js/maps/torres-view.js", "js/maps/torres.js", "js/maps/tunel-view.js", "js/maps/tunel.js", "js/materials.js", "js/math.js", "js/music.js", "js/net.js", "js/race.js", "js/racers.js", "js/replay.js", "js/textures.js", "js/track.js", "js/tricks.js", "js/world.js"];
+let old = null; try { old = localStorage.getItem('jt-ver'); } catch {}
+if (old !== V) { try { await Promise.all(FILES.map(f => fetch(f, { cache: 'reload' }))); localStorage.setItem('jt-ver', V); } catch {} }
+await import('./js/main.js');
+</script>
 </body>
 </html>
