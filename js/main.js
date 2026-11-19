@@ -87,6 +87,7 @@ if (!unlocked(mapById(settings.map))) settings.map = [...MAPS].reverse().find(un
 const track = new Track(mapById(settings.map));
 MAP = track.map.key;
 const view = new CourseView(scene, track, world.quality);
+view.camera = camera; // para los mapas que miran a la cámara (los ojos)
 world.setMap(track.map.atmo ? track.map.atmo() : null);
 // nubes sueltas: solo en el desierto (cuelgan de ellas los péndulos y el tren sale de ellas)
 let clouds = null;

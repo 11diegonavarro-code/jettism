@@ -122,6 +122,24 @@ const boxD = (lx, ly, lz, h) => {
 function sdf(c, p) {
   switch (c.type) {
     case 'sphere': return p.dist(c.c) - c.r;
+    // hueco: el espacio libre es la unión de esferas y tubos (cúpulas y conductos); fuera de él todo es sólido
+    case 'void': {
+      let best = -Infinity;
+      for (const h of c.shapes) {
+        let d;
+        if (h.t === 's') d = h.r - p.dist(h.c);
+        else { _p.subVectors(p, h.a); const ab = _hh.subVectors(h.b, h.a), f = clamp(_p.dot(ab) / ab.lenSq(), 0, 1); d = h.r - Math.hypot(p.x - h.a.x - ab.x * f, p.y - h.a.y - ab.y * f, p.z - h.a.z - ab.z * f); }
+        if (d > best) best = d;
+      }
+      return best;
+    }
+    // iris: un anillo plano (de rin a rout, grosor 2·th) perpendicular a n; rin cambia con el tiempo
+    case 'iris': {
+      _p.subVectors(p, c.c);
+      const ax = _p.dot(c.n), rad = Math.hypot(_p.x - c.n.x * ax, _p.y - c.n.y * ax, _p.z - c.n.z * ax);
+      const dr = Math.max(c.rin - rad, rad - c.rout), da = Math.abs(ax) - c.th;
+      return Math.hypot(Math.max(dr, 0), Math.max(da, 0)) + Math.min(Math.max(dr, da), 0);
+    }
     case 'capsule': {
       const bax = c.b.x - c.a.x, bay = c.b.y - c.a.y, baz = c.b.z - c.a.z;
       const pax = p.x - c.a.x, pay = p.y - c.a.y, paz = p.z - c.a.z;
@@ -559,6 +577,12 @@ function bounds(c) {
   let r, x0, x1, z0, z1;
   switch (c.type) {
     case 'sphere': r = c.r; return { x0: c.c.x - r, x1: c.c.x + r, z0: c.c.z - r, z1: c.c.z + r };
+    case 'iris': r = c.rout; return { x0: c.c.x - r, x1: c.c.x + r, z0: c.c.z - r, z1: c.c.z + r };
+    case 'void': {
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const h of c.shapes) for (const q of h.t === 's' ? [h.c] : [h.a, h.b]) { x0 = Math.min(x0, q.x - h.r - 200); x1 = Math.max(x1, q.x + h.r + 200); z0 = Math.min(z0, q.z - h.r - 200); z1 = Math.max(z1, q.z + h.r + 200); }
+      return { x0, x1, z0, z1 };
+    }
     case 'capsule': r = c.r;
       x0 = Math.min(c.a.x, c.b.x) - r; x1 = Math.max(c.a.x, c.b.x) + r; z0 = Math.min(c.a.z, c.b.z) - r; z1 = Math.max(c.a.z, c.b.z) + r;
       return { x0, x1, z0, z1 };
