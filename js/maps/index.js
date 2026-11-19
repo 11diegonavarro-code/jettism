@@ -28,6 +28,8 @@ import * as escalerasView from './escaleras-view.js';
 import ojosDef from './ojos.js';
 import * as ojosView from './ojos-view.js';
 import estelarDef from './estelar.js';
+import estadioDef from './estadio.js';
+import * as estadioView from './estadio-view.js';
 import * as estelarView from './estelar-view.js';
 import jardinDef from './jardin.js';
 import * as jardinView from './jardin-view.js';
@@ -77,11 +79,13 @@ const ojos = { ...ojosDef, atmo: ojosView.atmo, buildView: ojosView.buildView, m
 
 const estelar = { ...estelarDef, atmo: estelarView.atmo, buildView: estelarView.buildView, music: estelarView.MUSIC, cloudLayout: estelarView.CLOUDS };
 
+const estadio = { ...estadioDef, atmo: estadioView.atmo, buildView: estadioView.buildView, music: estadioView.MUSIC, cloudLayout: estadioView.CLOUDS };
+
 // Niveles de la contrarreloj: solo mapas cerrados y técnicos, de la paleta más viva a la más oscura (los que aún no
 // están hechos se saltan y el número de nivel se cuenta con los hechos). Los abiertos van aparte (ARENAS).
 const LEVELS = ['collage', 'jardin', 'torres', 'rostro', 'ambar', 'liquido', 'tunel', 'mar', 'laberinto', 'escaleras', 'plano', 'nudos', 'ojos', 'luz', 'estelar'];
-const ARENAS = ['desierto', 'espiral', 'campo'];
-const all = { collage, jardin, torres, rostro, desierto, ambar, liquido, espiral, tunel, mar, laberinto, escaleras, plano, nudos, campo, ojos, luz, estelar };
+const ARENAS = ['estadio', 'desierto', 'espiral', 'campo'];
+const all = { collage, jardin, torres, rostro, desierto, ambar, liquido, espiral, tunel, mar, laberinto, escaleras, plano, nudos, campo, ojos, luz, estelar, estadio };
 // dificultad por tramos, como en los juegos de plataformas de ritmo; los Demonio: un choque y a empezar
 export const DIFFS = [['Fácil', '#58f0a0'], ['Normal', '#3ee8ff'], ['Difícil', '#f2b630'], ['Muy difícil', '#f97316'], ['Locura', '#ec4899'], ['Demonio', '#ff2a2a']];
 const N = LEVELS.length, tier = i => Math.min(DIFFS.length - 1, Math.floor((i * DIFFS.length) / N));

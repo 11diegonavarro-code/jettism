@@ -290,6 +290,12 @@
   #teamHud .thit.on { animation: hitMark .3s ease-out; }
   @keyframes hitMark { 0% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(.8); } }
   table.results tr.teamsRow td { font-family: 'Anton', Impact, sans-serif; font-size: 26px; color: var(--yel) !important; letter-spacing: 2px; }
+
+  #ballHud { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; display: grid; justify-items: center; gap: 4px; pointer-events: none; font-family: 'Anton', Impact, sans-serif; }
+  #ballHud .tscore { display: flex; gap: 12px; align-items: center; font-size: 40px; letter-spacing: 2px; }
+  #ballHud .tscore b { font-weight: 400; padding: 0 16px; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); color: #fff; }
+  #ballHud .t0 { background: #ff2a3c; } #ballHud .t1 { background: #2f8cff; }
+  #ballHud .tzone { font-family: 'Archivo Narrow', sans-serif; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; font-size: 14px; color: #f1ece2; text-shadow: 2px 2px 0 #000; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
@@ -459,6 +465,7 @@
         <option value="combate">Combate aéreo</option>
         <option value="acro">Acrobacias</option>
         <option value="equipos">Combate por equipos</option>
+        <option value="aerobalon">Aerobalón</option>
       </select></label>
       <p id="modeInfo" class="hint"></p>
       <div id="classRow" hidden><label>Tu clase <select id="cls"><option value="caza">⚡ Caza</option><option value="bombardero">💣 Bombardero</option><option value="francotirador">🎯 Francotirador</option></select></label><p id="clsInfo" class="hint"></p></div>

@@ -24,6 +24,8 @@ import { Racer, COLORS, BOT_NAMES } from './racers.js';
 import { Hangar, HangarUI } from './hangar.js';
 import { Items, ITEMS } from './items.js';
 import { Combat, CLASSES, CLASS_IDS, TEAMS, RESPAWN_TIME } from './combat.js';
+import { BallGame } from './ballgame.js';
+import { GOALS } from './maps/estadio.js';
 import { ReplayRecorder, ReplayPlayer, REPLAY_CAMS, CAM_LABEL } from './replay.js';
 import { defaultCfg, randomCfg, sanitizeCfg } from './hangar-data.js';
 import { V3, clamp, damp } from './math.js';
@@ -140,6 +142,28 @@ const combat = new Combat(scene, track, fx, sound, world, {
   groundY: (x, z) => track.groundY(x, z),
 });
 const isTeams = () => game.mode === 'race' && rules().kind === 'equipos';
+// Aerobalón: la bola, los goles y los portales (manda el anfitrión)
+const isBall = () => game.mode === 'race' && rules().kind === 'aerobalon';
+const ballGame = new BallGame(scene, fx, sound, {
+  racers: () => racers,
+  owned: r => !!r?.owned,
+  me: () => me,
+  host: () => !net.online || net.host,
+  send: m => { if (net.online) net.send(m); },
+  goal: (team, by) => {
+    const sc = racerById(by); if (sc && sc.team === team) sc.goals = (sc.goals || 0) + 1;
+    const mine = me.team === team;
+    hud.center(`¡GOL!\n${TEAMS[team].name.toUpperCase()}${sc ? ' · ' + sc.name : ''}`, '', 2.2);
+    sound.sfx(mine ? 'record' : 'trickFail'); game.impactT = 0.3; cam.shake = 1.4;
+  },
+  reposition: () => { for (const r of racers) if (r.owned) { const sp = ballSpot(r.team, r.slot); r.jet.spawn(sp.pos, sp.fwd, 40, 3); r.prevPos.copy(r.jet.pos); r.prevQ.copy(r.jet.q); } },
+});
+// salida del Aerobalón: cada equipo en su mitad, mirando al centro
+function ballSpot(team, slot = 0) {
+  const g = GOALS[team], z = g.c.z * 0.62, k = (slot >> 1) % 4, lat = ((k % 2) * 2 - 1) * (30 + 26 * (k >> 1));
+  const pos = new V3(g.c.x + lat, g.c.y + ((slot % 3) - 1) * 26, z);
+  return { pos, fwd: new V3(0, 0, -Math.sign(z)) };
+}
 settings.cls = CLASSES[store.get('jt-class', 'caza')] ? store.get('jt-class', 'caza') : 'caza';
 const teamScore = () => [0, 1].map(t => racers.filter(r => r.team === t).reduce((a, r) => a + (r.kills || 0), 0));
 addEventListener('resize', () => { world.resize(); fx.setPointScale(renderer, camera); });
@@ -431,7 +455,9 @@ function startFree() {
 function toMenu(msg = '') {
   net.close();
   editorTest = false;
+  combat.enable(false); ballGame.enable(false);
   applyMap(settings.map);
+  if (view.courseGroup) view.courseGroup.visible = true;
   applyCourse(settings.course);
   fillCourseSelect($('courseMenu'), settings.course);
   $('mapName').innerHTML = `${esc(track.map.name)} ${diffBadge(track.map)} <span class="stars">${totalStars()} ★</span>`;
@@ -497,13 +523,14 @@ const MODES = {
   copa: { label: 'Copa', info: 'Tres carreras seguidas: normal, al revés y de noche. Puntos por puesto (10, 8, 6, 5, 4, 3, 2, 1) y +3/+2/+1 a los tres con más estilo de cada carrera.' },
   combate: { label: 'Combate aéreo', info: 'Todos contra todos por el mapa. Tienes misiles que se recargan: fija a un rival delante de ti y dispara. Gana quien más derribe.' },
   acro: { label: 'Acrobacias', info: 'Vuela libre por el mapa y encadena piruetas. Gana quien más puntos de estilo consiga.' },
+  aerobalon: { label: 'Aerobalón', info: 'Rojo contra azul en el Estadio flotante: una bola gigante sin gravedad que se empuja embistiéndola (con turbo pega más fuerte). Mete la bola por el aro de la portería del otro equipo. Los portales llevan jets y bola de una pared a otra. Nadie se estrella. Gana quien marque más goles.' },
   equipos: { label: 'Combate por equipos', info: 'Rojo contra azul. Cada uno elige clase (caza, bombardero o francotirador) y dispara su cañón (F o clic, mantenido): las balas caen con la gravedad. La tinta se va cerrando: fuera pierdes vida. Si te derriban, reapareces a los 5 s. Gana el equipo con más derribos cuando la tinta se cierra.' },
 };
 const CUP_PTS = [10, 8, 6, 5, 4, 3, 2, 1];
 const ACRO_TRICKS = ['tonel', 'derrape', 'looping', 'campana', 'immelmann', 'splitS', 'barrena', 'cobra'];
 const newLobby = (players, bots) => ({ players, bots, map: settings.map, course: settings.course || null, laps: lobby.laps || 3, diff: lobby.diff || 'normal', mode: lobby.mode || 'carrera', time: lobby.time || 180, racing: false });
 const rules = () => game.rules || { kind: 'carrera', dir: 1 };
-const timed = () => ['combate', 'acro', 'equipos'].includes(rules().kind);
+const timed = () => ['combate', 'acro', 'equipos', 'aerobalon'].includes(rules().kind);
 // Carrera contra bots (sin red): la «sala» es solo la ventana de ajustes
 function openBotsLobby() {
   sound.init();
@@ -593,7 +620,7 @@ function renderLobby() {
   $('btnSaveCourse').hidden = hosting || !L.course || courses.list().some(c => c.code === L.course);
   $('mode').value = L.mode || 'carrera';
   $('modeInfo').textContent = (MODES[L.mode] || MODES.carrera).info;
-  const isTimed = L.mode === 'combate' || L.mode === 'acro' || L.mode === 'equipos';
+  const isTimed = L.mode === 'combate' || L.mode === 'acro' || L.mode === 'equipos' || L.mode === 'aerobalon';
   $('classRow').hidden = L.mode !== 'equipos';
   $('cls').value = settings.cls; $('clsInfo').textContent = L.mode === 'equipos' ? CLASSES[settings.cls].desc : '';
   $('lapsRow').hidden = isTimed; $('timeRow').hidden = !isTimed;
@@ -601,7 +628,7 @@ function renderLobby() {
   $('laps').value = L.laps; $('lapsVal').textContent = L.laps;
   $('time').value = String(L.time || 180);
   $('diff').value = L.diff;
-  $('btnStart').textContent = L.mode === 'copa' ? '¡Empezar la copa!' : L.mode === 'combate' || L.mode === 'equipos' ? '¡Empezar el combate!' : L.mode === 'acro' ? '¡Empezar!' : '¡Empezar la carrera!';
+  $('btnStart').textContent = L.mode === 'copa' ? '¡Empezar la copa!' : L.mode === 'combate' || L.mode === 'equipos' ? '¡Empezar el combate!' : L.mode === 'aerobalon' ? '¡Empezar el partido!' : L.mode === 'acro' ? '¡Empezar!' : '¡Empezar la carrera!';
   $('waitMsg').hidden = hosting;
   $('waitMsg').textContent = L.racing ? 'Hay una partida en marcha: entrarás en la siguiente.' : `Esperando a que el anfitrión empiece · ${(MODES[L.mode] || MODES.carrera).label}`;
   $('btnFly').hidden = !online;
@@ -626,14 +653,15 @@ function startRace(sameGrid = null) {
     all = [...humans.map(p => ({ id: p.pid, name: p.name, cfg: p.cfg, bot: false })), ...bots];
   }
   const slots = all.map((_, i) => i).sort(() => Math.random() - 0.5);
-  if (kind === 'equipos') { const order = all.map((_, i) => i).sort(() => Math.random() - 0.5); order.forEach((i, k) => { all[i].team = k % 2; if (all[i].bot && !all[i].cls) all[i].cls = CLASS_IDS[Math.floor(Math.random() * CLASS_IDS.length)]; }); }
+  if (kind === 'equipos' || kind === 'aerobalon') { const order = all.map((_, i) => i).sort(() => Math.random() - 0.5); order.forEach((i, k) => { all[i].team = k % 2; if (all[i].bot && !all[i].cls) all[i].cls = CLASS_IDS[Math.floor(Math.random() * CLASS_IDS.length)]; }); }
   const R = { kind, laps: timed2(kind) ? Infinity : lobby.laps, time: lobby.time || 180, dir: kind === 'copa' && round === 1 ? -1 : 1, night: kind === 'copa' && round === 2, round };
+  if (kind === 'aerobalon' && track.map.id !== 'estadio') applyMap('estadio');
   const msg = { t: 'start', map: track.map.id, course: lobby.course || null, go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i], team: p.team, cls: p.cls })) };
   if (net.online) net.send(msg);
   beginRace(msg);
   if (net.online) broadcastLobby();
 }
-const timed2 = kind => kind === 'combate' || kind === 'acro' || kind === 'equipos';
+const timed2 = kind => kind === 'combate' || kind === 'acro' || kind === 'equipos' || kind === 'aerobalon';
 // Dónde empieza cada jet según el modo: la plataforma, el aire antes de la meta (al revés) o repartidos (combate)
 function clearSpot(p) {
   for (let k = 0; k < 12 && (track.nearest(p, 30).d < 9 || p.y < 15); k++) p.y += 12;
@@ -665,7 +693,7 @@ function beginRace(m) {
   R.laps = timed2(R.kind) ? Infinity : (R.laps || m.laps || 3);
   game.rules = R;
   if (m.cup) game.cup = m.cup;
-  const teams = R.kind === 'equipos';
+  const teams = R.kind === 'equipos', ball = R.kind === 'aerobalon';
   if (teams) combat.setup(R.time || 180);
   const hostSide = !net.online || net.host;
   for (const g of m.grid) {
@@ -678,6 +706,7 @@ function beginRace(m) {
       if (r.owned) for (const [k, v] of Object.entries(CLASSES[r.cls].stats)) r.jet.stats[k] *= v;
       const sp = combat.spawnFor(r.team, 0); r.start = { pos: clearSpot(sp.pos), fwd: sp.fwd, air: true };
     }
+    if (ball) { r.team = g.team ?? 0; r.goals = 0; const sp = ballSpot(r.team, g.slot); r.start = { pos: sp.pos, fwd: sp.fwd, air: true }; }
     r.place(r.start.pos, r.start.fwd, 0, 99);
     if (r.ap && R.kind === 'acro') { r.ap.trickPool = ACRO_TRICKS; r.ap.skill = 1; }
     if (R.kind === 'combate') r.ammo = 2;
@@ -689,6 +718,8 @@ function beginRace(m) {
   items.clear();
   items.enable(R.kind === 'objetos' || R.kind === 'combate');
   combat.enable(teams);
+  ballGame.enable(ball);
+  if (view.courseGroup) view.courseGroup.visible = !ball && !teams; // en los modos de equipo no hay recorrido que seguir
   if (teams && net.online) net.send({ t: 'ev', k: 'cls', id: me.id, cls: me.cls });
   touchItems();
   precompile();
@@ -721,6 +752,7 @@ const styleOf = r => (r.owned ? r.style.total : r.styleTotal || 0);
 // Clasificación según el modo: derribos en combate, estilo en acrobacias y lo recorrido en las carreras
 function standings() {
   const k = rules().kind;
+  if (game.mode === 'race' && k === 'aerobalon') return [...racers].sort((a, b) => (b.goals || 0) - (a.goals || 0));
   if (game.mode === 'race' && (k === 'combate' || k === 'equipos')) return [...racers].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
   if (game.mode === 'race' && k === 'acro') return [...racers].sort((a, b) => styleOf(b) - styleOf(a));
   return [...racers].sort((a, b) => b.progress() - a.progress());
@@ -755,7 +787,13 @@ function showRaceResults() {
   const table = $('resTable');
   const row = (cells, cls) => { const tr = document.createElement('tr'); if (cls) tr.className = cls; for (const text of cells) { const td = document.createElement('td'); td.textContent = text; tr.appendChild(td); } table.appendChild(tr); };
   table.innerHTML = '';
-  if (R.kind === 'equipos') {
+  if (R.kind === 'aerobalon') {
+    const sc = ballGame.score, win = sc[0] === sc[1] ? -1 : sc[0] > sc[1] ? 0 : 1;
+    row(['', `${TEAMS[0].name} ${sc[0]} — ${sc[1]} ${TEAMS[1].name}`, '', '', ''], 'teamsRow');
+    row(['#', 'Piloto', 'Equipo', 'Goles', '']);
+    order.forEach((r, i) => row([`${i + 1}º`, r.name + (r.bot ? ' 🤖' : ''), TEAMS[r.team]?.name || '', String(r.goals || 0), ''], r === me ? 'me' : ''));
+    game.teamWin = win;
+  } else if (R.kind === 'equipos') {
     const sc = teamScore(), win = sc[0] === sc[1] ? -1 : sc[0] > sc[1] ? 0 : 1;
     row(['', `${TEAMS[0].name} ${sc[0]} — ${sc[1]} ${TEAMS[1].name}`, '', '', ''], 'teamsRow');
     row(['#', 'Piloto', 'Equipo', 'Derribos', 'Caídas']);
@@ -776,7 +814,7 @@ function showRaceResults() {
     });
   }
   const pos = order.indexOf(me) + 1;
-  $('resTitle').textContent = R.kind === 'equipos' ? (game.teamWin < 0 ? '¡Empate!' : game.teamWin === me.team ? `¡Gana tu equipo (${TEAMS[me.team].name})!` : `Gana el equipo ${TEAMS[game.teamWin].name}`) : pos === 1 ? '¡Has ganado!' : `Has quedado ${pos}º de ${order.length}`;
+  $('resTitle').textContent = R.kind === 'equipos' || R.kind === 'aerobalon' ? (game.teamWin < 0 ? '¡Empate!' : game.teamWin === me.team ? `¡Gana tu equipo (${TEAMS[me.team].name})!` : `Gana el equipo ${TEAMS[game.teamWin].name}`) : pos === 1 ? '¡Has ganado!' : `Has quedado ${pos}º de ${order.length}`;
   $('resBody').innerHTML = '';
   // copa: tabla acumulada
   if (R.kind === 'copa' && game.cup) {
@@ -844,6 +882,7 @@ net.on('st', m => {
 });
 const ITEM_EVENTS = ['mfire', 'mine', 'mhit', 'minehit', 'mlost', 'flares'];
 net.on('ev', m => {
+  if (m.k === 'ball' || m.k === 'kick' || m.k === 'goal' || m.k === 'kickoff') { if (ballGame.on) ballGame.onNet(m); return; }
   if (m.k === 'bfire' || m.k === 'bhit' || m.k === 'bgone') { if (combat.on) combat.onNet(m); return; }
   if (m.k === 'cls') { const r = racerById(m.id); if (r && !r.owned && CLASSES[m.cls]) { r.cls = m.cls; r.hp = CLASSES[m.cls].hp; } return; }
   if (ITEM_EVENTS.includes(m.k)) { if (items.on && !(m.k === 'flares' && racerById(m.id)?.owned)) items.onNet(m); return; }
@@ -908,6 +947,7 @@ function stepRacer(r, ev, awards) {
       if (ok && J.trick && J.trick.t === 0) noteTrick(r, want.name);
       if (isMe) { pendingTrick = null; ctl.trick = null; } else r.ctl.trick = null;
     }
+    if (isBall()) J.shield = Math.max(J.shield, 2); // en el Aerobalón nadie se estrella
     J.step(STEP, r.ctl, track, game.t, ev);
     if (J.alive) r.race.update(J, game.t, ev);
     if (J.alive && !J.trick) r.manual.step(STEP, game.t, J, awards);
@@ -1343,6 +1383,17 @@ function updateLock(dt) {
 function botControl(r) {
   const J = r.jet;
   // en los mapas estrechos no se persigue por libre (se estrellarían): siguen el recorrido y disparan a quien tengan delante
+  if (isBall() && game.phase === 'race') {
+    const B = ballGame.ball, goal = GOALS[1 - (r.team ?? 0)], toGoal = _bg.set(goal.c.x - B.p.x, goal.c.y - B.p.y, goal.c.z - B.p.z).normalize();
+    // detrás de la bola (respecto a la portería rival): a por ella apuntando un poco por detrás de su centro, para empujarla hacia allí;
+    // si no, a rodearla por un punto detrás de ella
+    const rel = new V3(J.pos.x - B.p.x, J.pos.y - B.p.y, J.pos.z - B.p.z), along = rel.dot(toGoal), side = Math.sqrt(Math.max(0, rel.lenSq() - along * along));
+    const behind = along < -8 && side < Math.max(30, -along * 0.6);
+    const tgt = behind ? B.p.clone().addScaled(toGoal, -6).addScaled(B.v, 0.2) : B.p.clone().addScaled(toGoal, -55).addScaled(B.v, 0.5);
+    r.ap.chase(J, STEP, r.ctl, game.clock, tgt, B.v);
+    r.ctl.boost = behind && J.pos.dist(B.p) < 160 && J.turbo > 20;
+    return;
+  }
   if (isTeams() && game.phase === 'race') {
     if (combat.outside(J.pos, game.t + 4)) { r.ap.chase(J, STEP, r.ctl, game.clock, combat.center, _bg.set(0, 0, 0)); return; }
     if ((r.pickT = (r.pickT || 0) - STEP) <= 0 || !r.prey || !r.prey.view.alive || !racers.includes(r.prey)) {
@@ -1543,7 +1594,7 @@ function drawTags() {
     if (!p.front || Math.abs(p.nx) > 1.05 || Math.abs(p.ny) > 1.05) continue;
     let el = tagEls.get(r);
     if (!el) { el = document.createElement('div'); box.appendChild(el); tagEls.set(r, el); }
-    el.style.color = isTeams() && r.team != null ? TEAMS[r.team].color : r.color;
+    el.style.color = (isTeams() || isBall()) && r.team != null ? TEAMS[r.team].color : r.color;
     el.textContent = (order ? `${order.indexOf(r) + 1} · ` : '') + r.name;
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%) scale(${clamp(260 / d, 0.65, 1.1)})`;
     el.hidden = false;
@@ -1573,7 +1624,8 @@ function drawHud(dt) {
   const best = game.mode === 'trial' ? [race.best, rec.lap].filter(Boolean) : [race.best].filter(Boolean);
   const tm = game.mode === 'race' && timed(), R = rules();
   if (isTeams()) combat.updateHud(me, game.t, teamScore());
-  const label = tm ? (R.kind === 'combate' || R.kind === 'equipos' ? `${R.kind === 'equipos' ? 'EQUIPOS' : 'COMBATE'} · ${me.kills} ${me.kills === 1 ? 'DERRIBO' : 'DERRIBOS'}` : 'ACROBACIAS')
+  if (isBall()) ballGame.updateHud(me);
+  const label = tm && R.kind === 'aerobalon' ? `AEROBALÓN · ${me.goals || 0} ${me.goals === 1 ? 'GOL' : 'GOLES'}` : tm ? (R.kind === 'combate' || R.kind === 'equipos' ? `${R.kind === 'equipos' ? 'EQUIPOS' : 'COMBATE'} · ${me.kills} ${me.kills === 1 ? 'DERRIBO' : 'DERRIBOS'}` : 'ACROBACIAS')
     : game.mode === 'lobby' ? (net.online ? `SALA ${net.code}` : 'SALA') : game.mode === 'free' ? 'VUELO LIBRE' : null;
   hud.setRace({ lap: race.lap || 1, laps: race.laps, time: done ? race.finishTime : notYet ? 0 : Math.max(0, runTime()), lapTime: tm ? Math.max(0, R.time - Math.max(0, game.t)) : lapTime, best: tm ? null : best.length ? Math.min(...best) : null, free: !!label, label });
   drawItemHud(dt);
@@ -1765,6 +1817,7 @@ function frame(now) {
       checkRaceEnd();
       items.update(dt);
       combat.update(dt, game.t);
+      if (game.phase === 'race') ballGame.update(dt, game.clock);
       if ((game.mode === 'race' || game.mode === 'trial') && (game.phase === 'race' || (game.phase === 'finished' && !game.resultsShown))) recorder.sample(dt, game.clock, racerById, items);
     }
   }
@@ -2426,7 +2479,7 @@ if (DEBUG) {
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
     startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
     items, recorder, photo, music, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
-    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, combat, teamScore, unlocked, earned, totalStars, starsOf, runPct, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
+    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, combat, teamScore, ballGame, unlocked, earned, totalStars, starsOf, runPct, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },
