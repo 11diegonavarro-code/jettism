@@ -40,6 +40,7 @@ Carreras de jets con piruetas en mundos de arte surrealista, para jugar en Chrom
 - **Sonido del jet:** motor sintetizado de videojuego, muy bajo para que mande la música, e igual en la partida y en la repetición.
 - **Kit de formas abstractas:** masas deformadas, cintas retorcidas, tentáculos, jarrones torcidos, cristales, pétalos, gotas que se derriten, nudos, caracolas y corales, pintados con pinceladas, para sobrecargar los escenarios.
 - **Modo práctica:** en la pantalla de niveles, abre todos los niveles para entrenar. Los tiempos se guardan, pero para abrir niveles de verdad sigue haciendo falta el bronce en el anterior.
+  - **Mapa estelar (nivel 15, el último, Demonio):** el espacio negro, dentro de una jaula de filamentos rojos y dorados que giran en hélice y se juntan en nudos estrechos; planetas que orbitan cruzando el paso, aspas de luz y marcos de viñeta enormes a lo lejos. (Idea de una ilustración; no la usa.)
 - **Modo récords:** salida lanzada, reinicio instantáneo (Retroceso), parciales en cada puerta contra tu récord, medallas de bronce, plata, oro y autor, fantasma de tu mejor vuelta, retos a un amigo con un enlace que lleva tu fantasma, y una tabla mundial pública con el fantasma de cada piloto.
 - Vuelo arcade con derrape aéreo, turbo, roces y estampido sónico.
 - Diez piruetas, por combo (Espacio + dirección) o hechas a mano, con cadenas de estilo.
