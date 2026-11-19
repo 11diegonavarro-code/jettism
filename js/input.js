@@ -23,7 +23,8 @@ export class Input {
     addEventListener('keyup', e => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
     // clic izquierdo: misil u objeto; derecho: objeto (solo con el ratón capturado, en pleno vuelo)
-    addEventListener('mousedown', e => { if (this.locked) { this.edges.add('Mouse' + e.button); this.device = 'keyboard'; } });
+    addEventListener('mousedown', e => { if (this.locked) { this.edges.add('Mouse' + e.button); this.keys.add('Mouse' + e.button); this.device = 'keyboard'; } });
+    addEventListener('mouseup', e => this.keys.delete('Mouse' + e.button));
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     addEventListener('mousemove', e => {
       if (!this.locked) return;
@@ -139,6 +140,7 @@ export class Input {
     st.restart = e('Backspace');
     st.smoke = k('KeyH');
     st.fire = e('KeyF') || e('Mouse0'); st.use2 = e('KeyG') || e('Mouse2');
+    st.fireHeld = k('KeyF') || k('Mouse0'); // cañón del combate por equipos (mantener)
     st.any = this.edges.size > 0;
     this.edges.clear();
 
@@ -159,7 +161,7 @@ export class Input {
         // Y: objeto (segundo) · B: misil u objeto · stick derecho pulsado: cámara · stick izquierdo pulsado: mirar atrás
         st.cam = st.cam || (b(11) && !was(11));
         st.use2 = st.use2 || (b(3) && !was(3));
-        st.fire = st.fire || (b(1) && !was(1));
+        st.fire = st.fire || (b(1) && !was(1)); st.fireHeld = st.fireHeld || b(1);
         st.lookBack = st.lookBack || b(10);
         st.pause = st.pause || (b(9) && !was(9));
         // Select: pulsado corto vuelve al recorrido; mantenido 0,6 s reinicia la contrarreloj
@@ -190,7 +192,7 @@ export class Input {
       st.trickHeld = T.buttons.has('trick'); st.trickDown = T.edges.has('trick');
       st.cam = T.edges.has('cam'); st.pause = T.edges.has('pause');
       st.smoke = T.buttons.has('smoke');
-      st.fire = T.edges.has('item'); st.use2 = T.edges.has('item2');
+      st.fire = T.edges.has('item'); st.use2 = T.edges.has('item2'); st.fireHeld = T.buttons.has('item');
       st.restart = T.edges.has('restart');
       const d = this.stickDir(sx, sy * inv, this.touchDir);
       if (d && d !== this.touchDir) st.dirs.push(d);

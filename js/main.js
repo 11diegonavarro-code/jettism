@@ -23,6 +23,7 @@ import { Net } from './net.js';
 import { Racer, COLORS, BOT_NAMES } from './racers.js';
 import { Hangar, HangarUI } from './hangar.js';
 import { Items, ITEMS } from './items.js';
+import { Combat, CLASSES, CLASS_IDS, TEAMS, RESPAWN_TIME } from './combat.js';
 import { ReplayRecorder, ReplayPlayer, REPLAY_CAMS, CAM_LABEL } from './replay.js';
 import { defaultCfg, randomCfg, sanitizeCfg } from './hangar-data.js';
 import { V3, clamp, damp } from './math.js';
@@ -127,6 +128,20 @@ const items = new Items(scene, track, fx, sound, {
   onHit: (r, cause, by) => itemHit(r, cause, by),
   onShield: r => { if (r === me) { hud.feed('¡EL ESCUDO TE HA SALVADO!', 'near'); sound.sfx('shieldPop'); } },
 });
+// Combate por equipos: balas, vida y la esfera de tinta (cada pantalla decide sobre sus propios jets)
+const combat = new Combat(scene, track, fx, sound, world, {
+  racers: () => racers,
+  byId: id => racerById(id),
+  owned: r => !!r?.owned,
+  me: () => me,
+  send: m => { if (net.online) net.send(m); },
+  kill: (r, by) => itemHit(r, 'bala', by),
+  hitMarker: () => { combat.flashHit(); sound.sfx('lock'); },
+  groundY: (x, z) => track.groundY(x, z),
+});
+const isTeams = () => game.mode === 'race' && rules().kind === 'equipos';
+settings.cls = CLASSES[store.get('jt-class', 'caza')] ? store.get('jt-class', 'caza') : 'caza';
+const teamScore = () => [0, 1].map(t => racers.filter(r => r.team === t).reduce((a, r) => a + (r.kills || 0), 0));
 addEventListener('resize', () => { world.resize(); fx.setPointScale(renderer, camera); });
 fx.setPointScale(renderer, camera);
 
@@ -459,7 +474,8 @@ function respawnRacer(r) {
     p = { pos: S.pointAt(g.s + 30), fwd: S.tangentAt(g.s + 30) };
     r.shieldT = 3;
   }
-  r.jet.spawn(p.pos, p.fwd, 72, 1.5);
+  if (isTeams()) { const sp = combat.spawnFor(r.team, game.t); p = { pos: clearSpot(sp.pos), fwd: sp.fwd }; r.hp = CLASSES[r.cls].hp; r.respawnSet = false; }
+  r.jet.spawn(p.pos, p.fwd, 72, isTeams() ? 3 : 1.5);
   r.jet.turbo = Math.max(r.jet.turbo, 15);
   r.race.teleport(r.jet.pos);
   r.prevPos.copy(r.jet.pos); r.prevQ.copy(r.jet.q);
@@ -481,12 +497,13 @@ const MODES = {
   copa: { label: 'Copa', info: 'Tres carreras seguidas: normal, al revés y de noche. Puntos por puesto (10, 8, 6, 5, 4, 3, 2, 1) y +3/+2/+1 a los tres con más estilo de cada carrera.' },
   combate: { label: 'Combate aéreo', info: 'Todos contra todos por el mapa. Tienes misiles que se recargan: fija a un rival delante de ti y dispara. Gana quien más derribe.' },
   acro: { label: 'Acrobacias', info: 'Vuela libre por el mapa y encadena piruetas. Gana quien más puntos de estilo consiga.' },
+  equipos: { label: 'Combate por equipos', info: 'Rojo contra azul. Cada uno elige clase (caza, bombardero o francotirador) y dispara su cañón (F o clic, mantenido): las balas caen con la gravedad. La tinta se va cerrando: fuera pierdes vida. Si te derriban, reapareces a los 5 s. Gana el equipo con más derribos cuando la tinta se cierra.' },
 };
 const CUP_PTS = [10, 8, 6, 5, 4, 3, 2, 1];
 const ACRO_TRICKS = ['tonel', 'derrape', 'looping', 'campana', 'immelmann', 'splitS', 'barrena', 'cobra'];
 const newLobby = (players, bots) => ({ players, bots, map: settings.map, course: settings.course || null, laps: lobby.laps || 3, diff: lobby.diff || 'normal', mode: lobby.mode || 'carrera', time: lobby.time || 180, racing: false });
 const rules = () => game.rules || { kind: 'carrera', dir: 1 };
-const timed = () => ['combate', 'acro'].includes(rules().kind);
+const timed = () => ['combate', 'acro', 'equipos'].includes(rules().kind);
 // Carrera contra bots (sin red): la «sala» es solo la ventana de ajustes
 function openBotsLobby() {
   sound.init();
@@ -576,13 +593,15 @@ function renderLobby() {
   $('btnSaveCourse').hidden = hosting || !L.course || courses.list().some(c => c.code === L.course);
   $('mode').value = L.mode || 'carrera';
   $('modeInfo').textContent = (MODES[L.mode] || MODES.carrera).info;
-  const isTimed = L.mode === 'combate' || L.mode === 'acro';
+  const isTimed = L.mode === 'combate' || L.mode === 'acro' || L.mode === 'equipos';
+  $('classRow').hidden = L.mode !== 'equipos';
+  $('cls').value = settings.cls; $('clsInfo').textContent = L.mode === 'equipos' ? CLASSES[settings.cls].desc : '';
   $('lapsRow').hidden = isTimed; $('timeRow').hidden = !isTimed;
   $('bots').max = maxBots; $('bots').value = L.bots; $('botsVal').textContent = L.bots;
   $('laps').value = L.laps; $('lapsVal').textContent = L.laps;
   $('time').value = String(L.time || 180);
   $('diff').value = L.diff;
-  $('btnStart').textContent = L.mode === 'copa' ? '¡Empezar la copa!' : L.mode === 'combate' ? '¡Empezar el combate!' : L.mode === 'acro' ? '¡Empezar!' : '¡Empezar la carrera!';
+  $('btnStart').textContent = L.mode === 'copa' ? '¡Empezar la copa!' : L.mode === 'combate' || L.mode === 'equipos' ? '¡Empezar el combate!' : L.mode === 'acro' ? '¡Empezar!' : '¡Empezar la carrera!';
   $('waitMsg').hidden = hosting;
   $('waitMsg').textContent = L.racing ? 'Hay una partida en marcha: entrarás en la siguiente.' : `Esperando a que el anfitrión empiece · ${(MODES[L.mode] || MODES.carrera).label}`;
   $('btnFly').hidden = !online;
@@ -607,13 +626,14 @@ function startRace(sameGrid = null) {
     all = [...humans.map(p => ({ id: p.pid, name: p.name, cfg: p.cfg, bot: false })), ...bots];
   }
   const slots = all.map((_, i) => i).sort(() => Math.random() - 0.5);
+  if (kind === 'equipos') { const order = all.map((_, i) => i).sort(() => Math.random() - 0.5); order.forEach((i, k) => { all[i].team = k % 2; if (all[i].bot && !all[i].cls) all[i].cls = CLASS_IDS[Math.floor(Math.random() * CLASS_IDS.length)]; }); }
   const R = { kind, laps: timed2(kind) ? Infinity : lobby.laps, time: lobby.time || 180, dir: kind === 'copa' && round === 1 ? -1 : 1, night: kind === 'copa' && round === 2, round };
-  const msg = { t: 'start', map: track.map.id, course: lobby.course || null, go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i] })) };
+  const msg = { t: 'start', map: track.map.id, course: lobby.course || null, go: net.hostNow() + 4200, laps: R.laps === Infinity ? 0 : R.laps, diff: lobby.diff, rules: { ...R, laps: R.laps === Infinity ? 0 : R.laps }, cup: game.cup, grid: all.map((p, i) => ({ id: p.id, name: p.name, cfg: p.cfg, bot: p.bot, slot: slots[i], team: p.team, cls: p.cls })) };
   if (net.online) net.send(msg);
   beginRace(msg);
   if (net.online) broadcastLobby();
 }
-const timed2 = kind => kind === 'combate' || kind === 'acro';
+const timed2 = kind => kind === 'combate' || kind === 'acro' || kind === 'equipos';
 // Dónde empieza cada jet según el modo: la plataforma, el aire antes de la meta (al revés) o repartidos (combate)
 function clearSpot(p) {
   for (let k = 0; k < 12 && (track.nearest(p, 30).d < 9 || p.y < 15); k++) p.y += 12;
@@ -645,12 +665,19 @@ function beginRace(m) {
   R.laps = timed2(R.kind) ? Infinity : (R.laps || m.laps || 3);
   game.rules = R;
   if (m.cup) game.cup = m.cup;
+  const teams = R.kind === 'equipos';
+  if (teams) combat.setup(R.time || 180);
   const hostSide = !net.online || net.host;
   for (const g of m.grid) {
     const mine = g.id === myId();
     const r = new Racer(scene, track, { id: g.id, name: g.name, cfg: mine ? settings.cfg : g.cfg, bot: g.bot, owned: mine || (g.bot && hostSide), me: mine, laps: R.laps, diff: m.diff, dir: R.dir });
     r.slot = g.slot;
     r.start = startSpot(R, g.slot);
+    if (teams) {
+      r.team = g.team ?? 0; r.cls = mine ? settings.cls : g.cls || 'caza'; r.hp = CLASSES[r.cls].hp;
+      if (r.owned) for (const [k, v] of Object.entries(CLASSES[r.cls].stats)) r.jet.stats[k] *= v;
+      const sp = combat.spawnFor(r.team, 0); r.start = { pos: clearSpot(sp.pos), fwd: sp.fwd, air: true };
+    }
     r.place(r.start.pos, r.start.fwd, 0, 99);
     if (r.ap && R.kind === 'acro') { r.ap.trickPool = ACRO_TRICKS; r.ap.skill = 1; }
     if (R.kind === 'combate') r.ammo = 2;
@@ -661,6 +688,8 @@ function beginRace(m) {
   meAp.dir = R.dir;
   items.clear();
   items.enable(R.kind === 'objetos' || R.kind === 'combate');
+  combat.enable(teams);
+  if (teams && net.online) net.send({ t: 'ev', k: 'cls', id: me.id, cls: me.cls });
   touchItems();
   precompile();
   game.mode = 'race'; game.phase = 'countdown'; game.paused = false; game.autopilot = DEBUG && params.has('auto');
@@ -692,7 +721,7 @@ const styleOf = r => (r.owned ? r.style.total : r.styleTotal || 0);
 // Clasificación según el modo: derribos en combate, estilo en acrobacias y lo recorrido en las carreras
 function standings() {
   const k = rules().kind;
-  if (game.mode === 'race' && k === 'combate') return [...racers].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  if (game.mode === 'race' && (k === 'combate' || k === 'equipos')) return [...racers].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
   if (game.mode === 'race' && k === 'acro') return [...racers].sort((a, b) => styleOf(b) - styleOf(a));
   return [...racers].sort((a, b) => b.progress() - a.progress());
 }
@@ -726,7 +755,13 @@ function showRaceResults() {
   const table = $('resTable');
   const row = (cells, cls) => { const tr = document.createElement('tr'); if (cls) tr.className = cls; for (const text of cells) { const td = document.createElement('td'); td.textContent = text; tr.appendChild(td); } table.appendChild(tr); };
   table.innerHTML = '';
-  if (R.kind === 'combate') {
+  if (R.kind === 'equipos') {
+    const sc = teamScore(), win = sc[0] === sc[1] ? -1 : sc[0] > sc[1] ? 0 : 1;
+    row(['', `${TEAMS[0].name} ${sc[0]} — ${sc[1]} ${TEAMS[1].name}`, '', '', ''], 'teamsRow');
+    row(['#', 'Piloto', 'Equipo', 'Derribos', 'Caídas']);
+    order.forEach((r, i) => row([`${i + 1}º`, `${r.name}${r.bot ? ' 🤖' : ''} · ${CLASSES[r.cls]?.icon || ''}`, TEAMS[r.team]?.name || '', String(r.kills), String(r.deaths)], r === me ? 'me' : ''));
+    game.teamWin = win;
+  } else if (R.kind === 'combate') {
     row(['#', 'Piloto', 'Derribos', 'Caídas', '']);
     order.forEach((r, i) => row([`${i + 1}º`, r.name + (r.bot ? ' 🤖' : ''), String(r.kills), String(r.deaths), ''], r === me ? 'me' : ''));
   } else if (R.kind === 'acro') {
@@ -741,7 +776,7 @@ function showRaceResults() {
     });
   }
   const pos = order.indexOf(me) + 1;
-  $('resTitle').textContent = pos === 1 ? '¡Has ganado!' : `Has quedado ${pos}º de ${order.length}`;
+  $('resTitle').textContent = R.kind === 'equipos' ? (game.teamWin < 0 ? '¡Empate!' : game.teamWin === me.team ? `¡Gana tu equipo (${TEAMS[me.team].name})!` : `Gana el equipo ${TEAMS[game.teamWin].name}`) : pos === 1 ? '¡Has ganado!' : `Has quedado ${pos}º de ${order.length}`;
   $('resBody').innerHTML = '';
   // copa: tabla acumulada
   if (R.kind === 'copa' && game.cup) {
@@ -809,6 +844,8 @@ net.on('st', m => {
 });
 const ITEM_EVENTS = ['mfire', 'mine', 'mhit', 'minehit', 'mlost', 'flares'];
 net.on('ev', m => {
+  if (m.k === 'bfire' || m.k === 'bhit' || m.k === 'bgone') { if (combat.on) combat.onNet(m); return; }
+  if (m.k === 'cls') { const r = racerById(m.id); if (r && !r.owned && CLASSES[m.cls]) { r.cls = m.cls; r.hp = CLASSES[m.cls].hp; } return; }
   if (ITEM_EVENTS.includes(m.k)) { if (items.on && !(m.k === 'flares' && racerById(m.id)?.owned)) items.onNet(m); return; }
   const r = racerById(m.id);
   if (!r || r.owned) return;
@@ -887,8 +924,13 @@ function stepRacer(r, ev, awards) {
       if (r.missT > (isMe ? 1.5 : 0.3)) { r.missT = 0; isMe ? respawn() : respawnRacer(r); }
     } else r.missT = 0;
     if (isMe && game.mode === 'trial' && game.phase === 'race' && race.lap >= 1) ghostRec.sample(game.t - race.lapStart, J);
+    if (J.alive && isTeams() && game.phase === 'race') {
+      if (isMe) { if (st?.fireHeld && !game.autopilot && !game.menuOpen && !game.paused) combat.fire(me, st.mouseAim ? aim.dir : J.fwd); else if (game.autopilot) botGun(r); }
+      else botGun(r);
+    }
   } else {
     J.step(STEP, r.ctl, track, game.t, ev);
+    if (isTeams() && !r.respawnSet) { J.crashT = RESPAWN_TIME; r.respawnSet = true; }
     if (J.crashT <= 0 && !(isMe && demonRule())) isMe ? respawn() : respawnRacer(r);
   }
 }
@@ -1301,6 +1343,16 @@ function updateLock(dt) {
 function botControl(r) {
   const J = r.jet;
   // en los mapas estrechos no se persigue por libre (se estrellarían): siguen el recorrido y disparan a quien tengan delante
+  if (isTeams() && game.phase === 'race') {
+    if (combat.outside(J.pos, game.t + 4)) { r.ap.chase(J, STEP, r.ctl, game.clock, combat.center, _bg.set(0, 0, 0)); return; }
+    if ((r.pickT = (r.pickT || 0) - STEP) <= 0 || !r.prey || !r.prey.view.alive || !racers.includes(r.prey)) {
+      r.pickT = 3 + Math.random() * 4;
+      let best = null, bd = Infinity;
+      for (const o of racers) { if (o === r || o.team === r.team || !o.view.alive) continue; const dd = o.view.p.distanceTo(J.pos) * (0.6 + Math.random() * 0.8); if (dd < bd) { bd = dd; best = o; } }
+      r.prey = best;
+    }
+    if (r.prey && J.pos.y > 25) { r.ap.chase(J, STEP, r.ctl, game.clock, r.prey.view.p, r.prey.view.v); return; }
+  }
   if (isCombat() && game.phase === 'race' && !track.map.ai) {
     if ((r.pickT = (r.pickT || 0) - STEP) <= 0 || !r.prey || !r.prey.view.alive || !racers.includes(r.prey)) {
       r.pickT = 4 + Math.random() * 5;
@@ -1311,6 +1363,18 @@ function botControl(r) {
     if (r.prey && r.prey.view.p.distanceTo(J.pos) < 1400 && J.pos.y > 25) { r.ap.chase(J, STEP, r.ctl, game.clock, r.prey.view.p, r.prey.view.v); return; }
   }
   r.ap.control(J, STEP, r.ctl, game.clock);
+}
+// Bots del combate por equipos: apuntan con adelanto (y compensan la caída de la bala) y disparan si lo tienen delante
+const _bg = new V3();
+function botGun(r) {
+  const prey = r.prey, G = CLASSES[r.cls || 'caza'].gun, J = r.jet;
+  if (!prey || !prey.view.alive || prey.team === r.team) return;
+  const d = prey.view.p.distanceTo(J.pos);
+  if (d > G.range) return;
+  const tt = d / G.v;
+  _bg.set(prey.view.p.x + prey.view.v.x * tt - J.pos.x, prey.view.p.y + prey.view.v.y * tt + 0.5 * G.grav * tt * tt - J.pos.y, prey.view.p.z + prey.view.v.z * tt - J.pos.z);
+  const L = _bg.len();
+  if (_bg.dot(J.fwd) / L > G.cone - (r.bot ? 0.01 : 0)) combat.fire(r, _bg.scale(1 / L));
 }
 // Bots: cuándo usar cada objeto
 function botItems(r, dt) {
@@ -1479,7 +1543,7 @@ function drawTags() {
     if (!p.front || Math.abs(p.nx) > 1.05 || Math.abs(p.ny) > 1.05) continue;
     let el = tagEls.get(r);
     if (!el) { el = document.createElement('div'); box.appendChild(el); tagEls.set(r, el); }
-    el.style.color = r.color;
+    el.style.color = isTeams() && r.team != null ? TEAMS[r.team].color : r.color;
     el.textContent = (order ? `${order.indexOf(r) + 1} · ` : '') + r.name;
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%) scale(${clamp(260 / d, 0.65, 1.1)})`;
     el.hidden = false;
@@ -1508,7 +1572,8 @@ function drawHud(dt) {
   const lapTime = notYet ? 0 : done ? race.lapTimes[race.lapTimes.length - 1] : Math.max(0, game.t - race.lapStart);
   const best = game.mode === 'trial' ? [race.best, rec.lap].filter(Boolean) : [race.best].filter(Boolean);
   const tm = game.mode === 'race' && timed(), R = rules();
-  const label = tm ? (R.kind === 'combate' ? `COMBATE · ${me.kills} ${me.kills === 1 ? 'DERRIBO' : 'DERRIBOS'}` : 'ACROBACIAS')
+  if (isTeams()) combat.updateHud(me, game.t, teamScore());
+  const label = tm ? (R.kind === 'combate' || R.kind === 'equipos' ? `${R.kind === 'equipos' ? 'EQUIPOS' : 'COMBATE'} · ${me.kills} ${me.kills === 1 ? 'DERRIBO' : 'DERRIBOS'}` : 'ACROBACIAS')
     : game.mode === 'lobby' ? (net.online ? `SALA ${net.code}` : 'SALA') : game.mode === 'free' ? 'VUELO LIBRE' : null;
   hud.setRace({ lap: race.lap || 1, laps: race.laps, time: done ? race.finishTime : notYet ? 0 : Math.max(0, runTime()), lapTime: tm ? Math.max(0, R.time - Math.max(0, game.t)) : lapTime, best: tm ? null : best.length ? Math.min(...best) : null, free: !!label, label });
   drawItemHud(dt);
@@ -1699,6 +1764,7 @@ function frame(now) {
       if (game.phase === 'finished' && (game.finishT += dt) > 2.5 && $('results').hidden && game.mode === 'trial' && !game.resultsShown) { game.resultsShown = true; showOverlay('results'); }
       checkRaceEnd();
       items.update(dt);
+      combat.update(dt, game.t);
       if ((game.mode === 'race' || game.mode === 'trial') && (game.phase === 'race' || (game.phase === 'finished' && !game.resultsShown))) recorder.sample(dt, game.clock, racerById, items);
     }
   }
@@ -2274,6 +2340,7 @@ $('courseSel').onchange = e => {
   if (net.online) broadcastLobby(); else renderLobby();
 };
 $('mode').onchange = e => { lobby.mode = e.target.value; game.cup = null; if (net.online) broadcastLobby(); else renderLobby(); };
+$('cls').onchange = e => { settings.cls = e.target.value; store.set('jt-class', settings.cls); $('clsInfo').textContent = CLASSES[settings.cls].desc; };
 $('time').onchange = e => { lobby.time = +e.target.value; if (net.online) broadcastLobby(); else renderLobby(); };
 $('btnFly').onclick = closeLobbyPanel;
 $('btnLeave').onclick = () => toMenu();
@@ -2359,7 +2426,7 @@ if (DEBUG) {
     get ctl() { return ctl; }, get st() { return st; }, get lobby() { return lobby; }, get ap() { return meAp; },
     startTrial, startFree, toMenu, respawn, startRace, openBotsLobby, hostRoom, join, standings, enterHangar, hangar, hangarUI,
     items, recorder, photo, music, startReplay, stopReplay, enterPhoto, exitPhoto, savePhoto, useItem, fireMissile, findTarget, itemHit,
-    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, unlocked, earned, totalStars, starsOf, runPct, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
+    get replay() { return replay; }, board, openBoard, setRival, challengeLink, get rival() { return rival; }, PID, editor, courses, applyCourse, applyMap, combat, teamScore, unlocked, earned, totalStars, starsOf, runPct, selectMap, MAPS, openEditor, encodeCourse, decodeCourse, get courseCode() { return courseCode; }, get lobbyRef() { return lobby; }, setLobby(o) { Object.assign(lobby, o); },
     setAutopilot(on) { game.autopilot = on; },
     spawnAt(s, v = 90) { const S = track.spline; me.place(S.pointAt(s), S.tangentAt(s), v, 2); race.teleport(jet.pos); meAp.hint = -1; syncAim(); cam.cut = true; },
     trick(name, side = 1) { pendingTrick = { name, side }; },

@@ -238,10 +238,10 @@ export function createWorld(renderer, qualityName) {
     composer.addPass(new OutputPass());
     if (!Q.msaa) { fxaa = new ShaderPass(FXAAShader); composer.addPass(fxaa); }
     finalPass = new ShaderPass({
-      uniforms: { uComic: { value: 0 }, uSpeed: { value: 0 }, uImpact: { value: 0 }, uChroma: { value: 0 }, uPulse: { value: 0 }, uGrainAdd: { value: 0 }, uSat: { value: 1.12 }, uContrast: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGrain: { value: 0 }, uKeepRed: { value: 0 }, uVigMin: { value: 0.74 }, uGT: { value: 0 },
+      uniforms: { uInk: { value: 0 }, uComic: { value: 0 }, uSpeed: { value: 0 }, uImpact: { value: 0 }, uChroma: { value: 0 }, uPulse: { value: 0 }, uGrainAdd: { value: 0 }, uSat: { value: 1.12 }, uContrast: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGrain: { value: 0 }, uKeepRed: { value: 0 }, uVigMin: { value: 0.74 }, uGT: { value: 0 },
         tDiffuse: { value: null }, uBlur: { value: 0 }, uHeatA: { value: new THREE.Vector4() }, uHeatB: { value: new THREE.Vector4() }, uHeatW: { value: new THREE.Vector2() }, uTime: { value: 0 }, uAspect: { value: 1 } },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; uniform float uSat, uContrast, uGrain, uKeepRed, uVigMin, uGT, uChroma, uPulse, uGrainAdd, uComic, uSpeed, uImpact; uniform vec3 uTint; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uBlur; uniform vec4 uHeatA, uHeatB; uniform vec2 uHeatW; uniform float uTime, uAspect; uniform float uSat, uContrast, uGrain, uKeepRed, uVigMin, uGT, uChroma, uPulse, uGrainAdd, uComic, uSpeed, uImpact, uInk; uniform vec3 uTint; varying vec2 vUv;
         float gHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
         // distorsión de calor: un cono que sale de cada tobera, ondulando, más ancho y más flojo cuanto más lejos
         vec2 heat(vec2 uv, vec4 seg) {
@@ -299,6 +299,16 @@ export function createWorld(renderer, qualityName) {
             col.rgb = mix(col.rgb, vec3(0.96, 0.93, 0.86), paper * fr);
             col.rgb = mix(col.rgb, vec3(0.03), ink * fr);
           }
+          // fuera de la tinta (combate por equipos): blanco y negro duro y la tinta comiéndose los bordes
+          if (uInk > 0.0) {
+            float lum3 = dot(col.rgb, vec3(0.3, 0.59, 0.11));
+            vec3 bw = vec3(smoothstep(0.32, 0.5, lum3)) * 0.92;
+            float r2 = length(c * vec2(uAspect, 1.0)), wob = 0.06 * sin(atan(c.y, c.x) * 9.0 + uGT * 3.0) * sin(atan(c.y, c.x) * 5.0 - uGT * 2.0);
+            float edge = smoothstep(0.42 + wob, 0.62 + wob, r2);
+            col.rgb = mix(col.rgb, bw, uInk * 0.85);
+            col.rgb = mix(col.rgb, vec3(0.01), edge * uInk);
+            col.rgb += vec3(0.9, 0.05, 0.08) * edge * (1.0 - edge) * 3.0 * uInk * (0.6 + 0.4 * sin(uGT * 8.0));
+          }
           // fotograma de impacto (al chocar): blanco y negro de golpe, invertido
           if (uImpact > 0.0) { float lum2 = dot(col.rgb, vec3(0.3, 0.59, 0.11)); col.rgb = mix(col.rgb, vec3(1.0 - step(0.42, lum2)), uImpact); }
           gl_FragColor = col;
@@ -326,6 +336,7 @@ export function createWorld(renderer, qualityName) {
     // Efectos de tensión: chroma (separación de colores), pulse (la viñeta se cierra), grain (grano extra)
     setTension(chroma, pulse, grain) { if (!finalPass) return; const U = finalPass.uniforms; U.uChroma.value = chroma; U.uPulse.value = pulse; U.uGrainAdd.value = grain; },
     // cómic y anime: k (0 a 1) según la dificultad, speed (0 a 1) para las líneas de velocidad, impact (0 a 1) al chocar
+    setInk(k) { if (!finalPass) return; const U = finalPass.uniforms.uInk; U.value += (k - U.value) * 0.12; },
     setComic(k, speed, impact) { if (!finalPass) return; const U = finalPass.uniforms; U.uComic.value = k; U.uSpeed.value = speed; U.uImpact.value = impact; },
     setBlur(k) { if (finalPass && Q.blur) finalPass.uniforms.uBlur.value = k; },
     // Calor del escape: a y b son tramos [x0, y0, x1, y1] en coordenadas de pantalla 0..1 (o null); width en pantalla; strength 0 lo apaga

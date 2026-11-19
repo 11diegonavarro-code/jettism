@@ -274,6 +274,22 @@
   .practiceRow { border: 2px dashed var(--yel); background: transparent; }
   .mapCard small, .mapCard .mrow { text-transform: none; letter-spacing: .2px; font-family: 'Archivo Narrow', 'Arial Narrow', sans-serif; }
   .mapCard .practiceTag { background: var(--yel); clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
+
+  /* combate por equipos: marcador, vida, aviso de la tinta y marca de impacto */
+  #teamHud { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; display: grid; justify-items: center; gap: 4px; pointer-events: none; font-family: 'Anton', Impact, sans-serif; }
+  #teamHud .tscore { display: flex; gap: 12px; align-items: center; font-size: 34px; letter-spacing: 2px; }
+  #teamHud .tscore b { font-weight: 400; padding: 0 14px; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+  #teamHud .t0 { background: #ff2a3c; color: #fff; } #teamHud .t1 { background: #2f8cff; color: #fff; }
+  #teamHud .tzone { font-family: 'Archivo Narrow', sans-serif; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; font-size: 14px; color: #f1ece2; text-shadow: 2px 2px 0 #000; }
+  #teamHud .tzone.bad { color: #ff2a3c; font-size: 18px; animation: inkBlink .5s steps(2) infinite; }
+  @keyframes inkBlink { 50% { opacity: .35; } }
+  #teamHud .thp { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); width: 260px; height: 12px; border: 2px solid #f1ece2; background: #000a; clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+  #teamHud .thp i { display: block; height: 100%; width: 100%; transition: width .15s; }
+  #teamHud .tcls { position: fixed; left: 50%; bottom: 112px; transform: translateX(-50%); font-size: 16px; letter-spacing: 2px; color: #f1ece2; text-shadow: 2px 2px 0 #000; white-space: nowrap; }
+  #teamHud .thit { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 40px; color: #fff; opacity: 0; }
+  #teamHud .thit.on { animation: hitMark .3s ease-out; }
+  @keyframes hitMark { 0% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(.8); } }
+  table.results tr.teamsRow td { font-family: 'Anton', Impact, sans-serif; font-size: 26px; color: var(--yel) !important; letter-spacing: 2px; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
@@ -442,8 +458,10 @@
         <option value="copa">Copa: 3 carreras</option>
         <option value="combate">Combate aéreo</option>
         <option value="acro">Acrobacias</option>
+        <option value="equipos">Combate por equipos</option>
       </select></label>
       <p id="modeInfo" class="hint"></p>
+      <div id="classRow" hidden><label>Tu clase <select id="cls"><option value="caza">⚡ Caza</option><option value="bombardero">💣 Bombardero</option><option value="francotirador">🎯 Francotirador</option></select></label><p id="clsInfo" class="hint"></p></div>
       <label>Bots <input type="range" id="bots" min="0" max="7"> <b id="botsVal"></b></label>
       <label id="lapsRow">Vueltas <input type="range" id="laps" min="1" max="5"> <b id="lapsVal"></b></label>
       <label id="timeRow">Tiempo <select id="time"><option value="120">2 minutos</option><option value="180">3 minutos</option><option value="300">5 minutos</option></select></label>
